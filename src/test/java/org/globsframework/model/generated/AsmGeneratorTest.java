@@ -4,6 +4,7 @@ import org.globsframework.metamodel.Field;
 import org.globsframework.metamodel.GlobType;
 import org.globsframework.metamodel.GlobTypeBuilder;
 import org.globsframework.metamodel.GlobTypeBuilderFactory;
+import org.globsframework.metamodel.annotations.DefaultBooleanAnnotationType;
 import org.globsframework.metamodel.fields.*;
 import org.globsframework.model.MutableGlob;
 import org.globsframework.model.globaccessor.get.GlobGetDoubleAccessor;
@@ -26,7 +27,7 @@ public class AsmGeneratorTest {
         IntegerField i1 = globTypeBuilder.declareIntegerField("int");
         DoubleField d1 = globTypeBuilder.declareDoubleField("my double");
         LongField l1 = globTypeBuilder.declareLongField("my long");
-        LongArrayField la1 = globTypeBuilder.declareArrayLongField("an array of Long");
+        LongArrayField la1 = globTypeBuilder.declareLongArrayField("an array of Long");
         GlobType globType = globTypeBuilder.get();
 
         MutableGlob instantiate = globType.instantiate();
@@ -79,5 +80,11 @@ public class AsmGeneratorTest {
         Assert.assertNull(instantiate.get(i1));
         Assert.assertNull(instantiate.get(d1));
         Assert.assertNull(instantiate.get(l1));
+    }
+
+    @Test
+    public void testAnnotations() {
+        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
+        DefaultBooleanAnnotationType.TYPE.instantiate().set(DefaultBooleanAnnotationType.DEFAULT_VALUE, true);
     }
 }

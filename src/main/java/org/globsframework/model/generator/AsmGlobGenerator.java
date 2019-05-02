@@ -6,12 +6,7 @@ import org.globsframework.metamodel.fields.*;
 import org.globsframework.model.GlobFactory;
 import org.objectweb.asm.*;
 import org.objectweb.asm.FieldVisitor;
-import org.objectweb.asm.util.ASMifier;
-import org.objectweb.asm.util.TraceClassVisitor;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -318,7 +313,8 @@ public class AsmGlobGenerator {
         {
             int longNullCount = (globType.saveAccept(new CountNeedNullFieldVisitor()).count / 32) + 1;
             for (int i = 0; i < longNullCount; i++) {
-                classWriter.visitField(ACC_PROTECTED, NULL_FLAGS + i, "I", null, null);
+                fieldVisitor = classWriter.visitField(ACC_PROTECTED, NULL_FLAGS + i, "I", null, null);
+                fieldVisitor.visitEnd();
             }
         }
 
@@ -1306,10 +1302,10 @@ public class AsmGlobGenerator {
                     name = "BooleanField";
                     break;
                 case outputType:
+                case nativeType:
                     name = "Ljava/lang/Boolean;";
                     break;
                 case outputTypeSimple:
-                case nativeType:
                     name = "java/lang/Boolean";
                     break;
                 case getAccessor:
@@ -1665,41 +1661,47 @@ public class AsmGlobGenerator {
         MethodVisitor cv;
         cv = cw.visitMethod(ACC_PRIVATE, "setNull", "(Lorg/globsframework/metamodel/Field;)V", null, null);
         cv.visitCode();
-        cv.visitVarInsn(ALOAD, 1);
-        cv.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
 
-        Label lEnd = new Label();
-        Label[] labels = new Label[globType.getFieldCount()];
-        int i = 0;
-        for (Field field : globType.getFields()) {
-            labels[i] = new Label();
-            i++;
-        }
+        if (globType.getFieldCount() == 0) {
+            cv.visitInsn(RETURN);
+            cv.visitMaxs(3, 2);
+        } else {
+            cv.visitVarInsn(ALOAD, 1);
+            cv.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
 
-        Label lThrow = new Label();
+            Label lEnd = new Label();
+            Label[] labels = new Label[globType.getFieldCount()];
+            int i = 0;
+            for (Field field : globType.getFields()) {
+                labels[i] = new Label();
+                i++;
+            }
 
-        cv.visitTableSwitchInsn(0, globType.getFieldCount() - 1, lThrow, labels);
+            Label lThrow = new Label();
 
-        SetNullFieldVisitor setNullFieldVisitor = new SetNullFieldVisitor(className, cv);
-        i = 0;
-        for (Field field : globType.getFields()) {
-            cv.visitLabel(labels[i]);
+            cv.visitTableSwitchInsn(0, globType.getFieldCount() - 1, lThrow, labels);
+
+            SetNullFieldVisitor setNullFieldVisitor = new SetNullFieldVisitor(className, cv);
+            i = 0;
+            for (Field field : globType.getFields()) {
+                cv.visitLabel(labels[i]);
+                cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                cv.visitVarInsn(ALOAD, 0);
+                field.safeVisit(setNullFieldVisitor);
+                cv.visitJumpInsn(GOTO, lEnd);
+                ++i;
+            }
+            cv.visitLabel(lThrow);
             cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             cv.visitVarInsn(ALOAD, 0);
-            field.safeVisit(setNullFieldVisitor);
-            cv.visitJumpInsn(GOTO, lEnd);
-            ++i;
+            cv.visitVarInsn(ALOAD, 1);
+            cv.visitMethodInsn(INVOKEVIRTUAL, className, "throwError",
+                    "(Lorg/globsframework/metamodel/Field;)V", false);
+            cv.visitLabel(lEnd);
+            cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+            cv.visitInsn(RETURN);
+            cv.visitMaxs(3, 2);
         }
-        cv.visitLabel(lThrow);
-        cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-        cv.visitVarInsn(ALOAD, 0);
-        cv.visitVarInsn(ALOAD, 1);
-        cv.visitMethodInsn(INVOKEVIRTUAL, className, "throwError",
-                "(Lorg/globsframework/metamodel/Field;)V", false);
-        cv.visitLabel(lEnd);
-        cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-        cv.visitInsn(RETURN);
-        cv.visitMaxs(3, 2);
     }
 
     private static class SetNullFieldVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {

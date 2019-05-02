@@ -18,6 +18,7 @@ public class GeneratedGlobFactory extends AbstractGeneratedGlobFactory {
     public final static StringField f2;
     public final static DoubleField f3;
     public final static IntegerArrayField f4;
+    public final static StringField f5;
 
     static {
         GLOB_TYPE = AsmGlobGenerator.TYPE;
@@ -25,6 +26,7 @@ public class GeneratedGlobFactory extends AbstractGeneratedGlobFactory {
         f2 = (StringField) GLOB_TYPE.getField("f2");
         f3 = (DoubleField) GLOB_TYPE.getField("f3");
         f4 = (IntegerArrayField) GLOB_TYPE.getField("f4");
+        f5 = (StringField) GLOB_TYPE.getField("f5");
     }
 
     public MutableGlob create() {
@@ -101,6 +103,7 @@ public class GeneratedGlobFactory extends AbstractGeneratedGlobFactory {
         visitor.process(f2, generated.i2);
         visitor.process(f3, generated.get_i3());
         visitor.process(f4, generated.ia1);
+        visitor.process(f5, generated.get_name());
         return visitor;
     }
 

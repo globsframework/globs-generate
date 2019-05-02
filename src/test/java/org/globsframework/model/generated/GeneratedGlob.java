@@ -17,6 +17,8 @@ import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetIntArrayAcc
 import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetStringAccessor;
 import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetStringArrayAccessor;
 
+import java.nio.charset.StandardCharsets;
+
 public class GeneratedGlob extends AbstractGeneratedGlob {
     protected int i1;
     protected int[] ia1;
@@ -24,6 +26,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     protected String[] ia2;
     protected double i3;
     protected int nullFlag_1;
+    protected byte[] name;
 
     public MutableGlob doSet(Field field, Object value) {
         if (value == null) {
@@ -47,6 +50,8 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
                 case 5:
                     ia2 = (String[]) value;
                     break;
+                case 6:
+                    name = ((String) value).getBytes(StandardCharsets.UTF_8);
                 default:
                     throwError(field);
             }
@@ -70,6 +75,8 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
                 return ia1;
             case 5:
                 return ia2;
+            case 6:
+                return name == null ? null : new String(name, StandardCharsets.UTF_8);
             default:
                 throwError(field);
                 return null;
@@ -109,6 +116,18 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         } else {
             nullFlag_1 &= ~0x1;
             i3 = value;
+        }
+    }
+
+    String get_name() {
+        return name == null ? null : new String(name, StandardCharsets.UTF_8);
+    }
+
+    void set_name(Object name) {
+        if (name == null) {
+            this.name = null;
+        } else {
+            this.name = ((String) name).getBytes(StandardCharsets.UTF_8);
         }
     }
 
@@ -194,6 +213,14 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         }
     }
 
+    private static class nameGlobStringDataAccessor extends AbstractGlobGetStringAccessor {
+        public static final GeneratedGlob.nameGlobStringDataAccessor INSTANCE = new nameGlobStringDataAccessor();
+
+        public String get(Glob glob) {
+            return (((GeneratedGlob) glob).get_name());
+        }
+    }
+
     private static class s1GlobStringArrayDataAccessor extends AbstractGlobGetStringArrayAccessor {
         public static final GeneratedGlob.s1GlobStringArrayDataAccessor INSTANCE = new s1GlobStringArrayDataAccessor();
 
@@ -247,6 +274,14 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
 
         public void set(MutableGlob glob, String[] value) {
             ((GeneratedGlob) glob).ia2 = value;
+        }
+    }
+
+    private static class nameStringArrayGlobDataSetter extends AbstractGlobSetStringArrayAccessor {
+        public static final GeneratedGlob.nameStringArrayGlobDataSetter INSTANCE = new GeneratedGlob.nameStringArrayGlobDataSetter();
+
+        public void set(MutableGlob glob, String[] value) {
+            ((GeneratedGlob) glob).set_name(value);
         }
     }
 
