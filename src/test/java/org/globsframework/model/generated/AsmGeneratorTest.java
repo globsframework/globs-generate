@@ -80,6 +80,10 @@ public class AsmGeneratorTest {
         Assert.assertNull(instantiate.get(i1));
         Assert.assertNull(instantiate.get(d1));
         Assert.assertNull(instantiate.get(l1));
+
+        MutableGlob duplicate = instantiate.duplicate();
+        Assert.assertTrue(instantiate.matches(duplicate));
+        Assert.assertTrue(instantiate != duplicate);
     }
 
     @Test

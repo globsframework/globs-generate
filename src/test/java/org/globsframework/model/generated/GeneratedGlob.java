@@ -148,14 +148,14 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         return GeneratedGlobFactory.acceptValueStatic(this, functor);
     }
 
-    public Glob duplicate() {
-        GeneratedGlob generatedGlob = new GeneratedGlob();
-        generatedGlob.nullFlag_1 = nullFlag_1;
-        generatedGlob.i1 = i1;
-        generatedGlob.i2 = i2;
-        generatedGlob.i3 = i3;
-        return generatedGlob;
-    }
+//    public MutableGlob duplicate() {
+//        GeneratedGlob generatedGlob = new GeneratedGlob();
+//        generatedGlob.nullFlag_1 = nullFlag_1;
+//        generatedGlob.i1 = i1;
+//        generatedGlob.i2 = i2;
+//        generatedGlob.i3 = i3;
+//        return generatedGlob;
+//    }
 
     public static GlobSetAccessor getSetAccessor(Field field) {
         switch (field.getIndex()) {

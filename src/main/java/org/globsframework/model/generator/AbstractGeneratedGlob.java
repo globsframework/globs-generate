@@ -2,6 +2,8 @@ package org.globsframework.model.generator;
 
 import org.globsframework.metamodel.Field;
 import org.globsframework.metamodel.GlobType;
+import org.globsframework.model.Glob;
+import org.globsframework.model.MutableGlob;
 import org.globsframework.model.impl.AbstractMutableGlob;
 
 abstract public class AbstractGeneratedGlob extends AbstractMutableGlob {
@@ -14,4 +16,11 @@ abstract public class AbstractGeneratedGlob extends AbstractMutableGlob {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + globType.describe());
     }
 
+    public MutableGlob duplicate() {
+        MutableGlob instantiate = getType().instantiate();
+        for (Field field : getType().getFields()) {
+            instantiate.setValue(field, getValue(field));
+        }
+        return instantiate;
+    }
 }
