@@ -16,6 +16,9 @@ import org.globsframework.model.globaccessor.set.GlobSetLongAccessor;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class AsmGeneratorTest {
 
     @Test
@@ -31,10 +34,32 @@ public class AsmGeneratorTest {
         GlobType globType = globTypeBuilder.get();
 
         MutableGlob instantiate = globType.instantiate();
+
+        Assert.assertFalse(instantiate.isSet(i1));
+        Assert.assertFalse(instantiate.isSet(d1));
+        Assert.assertFalse(instantiate.isSet(l1));
+        Assert.assertFalse(instantiate.isSet(la1));
+
         instantiate.set(i1, 2);
+        Assert.assertTrue(instantiate.isSet(i1));
+        Assert.assertFalse(instantiate.isSet(d1));
+        Assert.assertFalse(instantiate.isSet(l1));
+        Assert.assertFalse(instantiate.isSet(la1));
+
         instantiate.set(d1, 2.2);
+        Assert.assertTrue(instantiate.isSet(d1));
+        Assert.assertFalse(instantiate.isSet(l1));
+        Assert.assertFalse(instantiate.isSet(la1));
         instantiate.set(l1, 123);
+
+        Assert.assertTrue(instantiate.isSet(l1));
+        Assert.assertFalse(instantiate.isSet(la1));
+
         instantiate.set(la1, new long[]{2,3});
+        Assert.assertTrue(instantiate.isSet(la1));
+        Assert.assertTrue(instantiate.isSet(l1));
+        Assert.assertTrue(instantiate.isSet(i1));
+
 
         Assert.assertEquals(2, instantiate.get(i1).intValue());
         Assert.assertEquals(2.2, instantiate.get(d1), 0.01);
@@ -84,11 +109,58 @@ public class AsmGeneratorTest {
         MutableGlob duplicate = instantiate.duplicate();
         Assert.assertTrue(instantiate.matches(duplicate));
         Assert.assertTrue(instantiate != duplicate);
+
+        instantiate.unset(d1);
+        Assert.assertFalse(instantiate.isSet(d1));
+        instantiate.unset(i1);
+        Assert.assertFalse(instantiate.isSet(i1));
+        instantiate.unset(l1);
+        Assert.assertFalse(instantiate.isSet(l1));
+        instantiate.unset(la1);
+        Assert.assertFalse(instantiate.isSet(la1));
     }
 
     @Test
     public void testAnnotations() {
         System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
         DefaultBooleanAnnotationType.TYPE.instantiate().set(DefaultBooleanAnnotationType.DEFAULT_VALUE, true);
+    }
+
+    @Test
+    public void GlobWithMoreThan32Field() {
+        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
+        GlobTypeBuilder globTypeBuilder = GlobTypeBuilderFactory.create("GlobType1");
+
+        List<Field> allField = new ArrayList<>();
+        for (int i = 0; i < 75; i++) {
+            allField.add(globTypeBuilder.declareIntegerField("int" + i));
+            allField.add(globTypeBuilder.declareDoubleField("my double" + i));
+            allField.add(globTypeBuilder.declareStringField("my String" + i));
+        }
+        GlobType globType = globTypeBuilder.get();
+        MutableGlob instantiate = globType.instantiate();
+        for (Field field : allField) {
+            Assert.assertFalse(instantiate.isSet(field));
+        }
+        for (Field field : allField) {
+            if (field.getName().contains("int")){
+                instantiate.setValue(field, 0);
+            } else if (field.getName().contains("double")) {
+                instantiate.setValue(field, 0.0);
+            } else if (field.getName().contains("String")) {
+                instantiate.setValue(field, "STR");
+            }
+            Assert.assertTrue(instantiate.isSet(field));
+        }
+        for (Field field : allField) {
+            Assert.assertTrue(instantiate.isSet(field));
+            instantiate.unset(field);
+            Assert.assertFalse(instantiate.isSet(field));
+        }
+        for (Field field : allField) {
+            Assert.assertFalse(instantiate.isSet(field));
+            instantiate.setValue(field, null);
+            Assert.assertTrue(instantiate.isSet(field));
+        }
     }
 }

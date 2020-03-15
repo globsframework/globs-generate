@@ -16,8 +16,13 @@ import org.globsframework.model.globaccessor.set.GlobSetIntAccessor;
 import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetIntArrayAccessor;
 import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetStringAccessor;
 import org.globsframework.model.globaccessor.set.impl.AbstractGlobSetStringArrayAccessor;
+import org.globsframework.utils.exceptions.ItemNotFound;
 
 import java.nio.charset.StandardCharsets;
+
+/*
+org.objectweb.asm.util.ASMifier .../globs-generate/target/test-classes/org/globsframework/model/generated/GeneratedGlob.class
+ */
 
 public class GeneratedGlob extends AbstractGeneratedGlob {
     protected int i1;
@@ -27,6 +32,8 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     protected double i3;
     protected int nullFlag_1;
     protected byte[] name;
+    protected int isSet;
+    protected int isSet2;
 
     public MutableGlob doSet(Field field, Object value) {
         if (value == null) {
@@ -36,6 +43,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
                 case 1:
                     i1 = (Integer) value;
                     nullFlag_1 &= ~0x1;
+                    isSet |= 1 << 1;
                     break;
                 case 2:
                     i2 = (String) value;
@@ -46,6 +54,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
                     break;
                 case 4:
                     ia1 = (int[]) value;
+                    isSet |= 1 << 4;
                     break;
                 case 5:
                     ia2 = (String[]) value;
@@ -88,11 +97,13 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     }
 
     public void setNative_i1(int value) {
+        isSet |= 1 << 1;
         nullFlag_1 &= ~0x1;
         i1 = value;
     }
 
     public void set_i1(Integer value) {
+        isSet |= 1 << 1;
         if (value == null) {
             nullFlag_1 |= 0x1;
         } else {
@@ -137,8 +148,8 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
 
     public void set_ia1(int[] value) {
         ia1 = value;
+        isSet |= 1 << 1;
     }
-
 
     public <T extends Functor> T apply(T functor) throws Exception {
         return GeneratedGlobFactory.processValue(this, functor);
@@ -242,6 +253,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
 
         public void set(MutableGlob glob, String value) {
             ((GeneratedGlob) glob).i2 = value;
+            ((GeneratedGlob) glob).isSet |= 1 << 1;
         }
     }
 
@@ -289,9 +301,11 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         switch (field.getIndex()) {
             case 0:
                 nullFlag_1 |= (0x1);
+                isSet |= 1;
                 break;
             case 1:
                 ia1 = null;
+                isSet |= 1 << 1;
                 break;
             case 2:
                 ia1 = null;
@@ -304,4 +318,38 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         }
     }
 
+    public boolean isSet2(Field field) throws ItemNotFound {
+        int index = field.getIndex();
+        switch (index >> 5){
+            case 0:
+                return (isSet & (1 << index)) != 0;
+            case 1:
+                return (isSet2 & (1 << index)) != 0;
+        }
+        throwError(field);
+        return false;
+    }
+
+    public boolean isSet(Field field) throws ItemNotFound {
+        int index = field.getIndex();
+        return (isSet & (1 << index)) != 0;
+    }
+
+    public void unset2(Field field){
+        int index = field.getIndex();
+        switch (index >> 5){
+            case 0:
+                isSet &= ~(1 << index);
+                break;
+            case 1:
+                isSet2 &= ~(1 << index);
+                break;
+        }
+
+    }
+
+    public void unset(Field field) {
+        int index = field.getIndex();
+        isSet &= ~(1 << index);
+    }
 }
