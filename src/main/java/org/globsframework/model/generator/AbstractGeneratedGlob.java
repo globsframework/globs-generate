@@ -15,11 +15,4 @@ abstract public class AbstractGeneratedGlob extends AbstractMutableGlob {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + getType().describe());
     }
 
-    public MutableGlob duplicate() {
-        MutableGlob instantiate = getType().instantiate();
-        for (Field field : getType().getFields()) {
-            instantiate.setValue(field, getValue(field));
-        }
-        return instantiate;
-    }
 }

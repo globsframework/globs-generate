@@ -335,6 +335,11 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
         return (isSet & (1 << index)) != 0;
     }
 
+    //TODO
+//    public boolean isNull(Field field) throws ItemNotFound {
+//
+//    }
+
     public void unset2(Field field){
         int index = field.getIndex();
         switch (index >> 5){
