@@ -99,20 +99,21 @@ public class GeneratedGlobFactory extends AbstractGeneratedGlobFactory {
 
     public static <T extends FieldValues.Functor>
     T processValue(GeneratedGlob generated, T visitor) throws Exception {
-        visitor.process(f1, generated.get_i1());
-        visitor.process(f2, generated.i2);
-        visitor.process(f3, generated.get_i3());
-        visitor.process(f4, generated.ia1);
-        visitor.process(f5, generated.get_name());
+        // l'impact de perf du isSet est assez important : pb d'inline? cf PerfReadWriteTest en Json. et le gain de perf met plus de temps a arrivé.
+        if (generated.isSet(f1)) visitor.process(f1, generated.get_i1());
+        if (generated.isSet(f2)) visitor.process(f2, generated.i2);
+        if (generated.isSet(f3)) visitor.process(f3, generated.get_i3());
+        if (generated.isSet(f4)) visitor.process(f4, generated.ia1);
+        if (generated.isSet(f5)) visitor.process(f5, generated.get_name());
         return visitor;
     }
 
     public static <T extends FieldValueVisitor>
     T acceptValueStatic(GeneratedGlob generated, T visitor) throws Exception {
-        visitor.visitInteger(f1, generated.get_i1() );
-        visitor.visitString(f2, generated.i2);
-        visitor.visitDouble(f3, generated.get_i3());
-        visitor.visitIntegerArray(f4, generated.ia1);
+        if (generated.isSet(f1)) visitor.visitInteger(f1, generated.get_i1() );
+        if (generated.isSet(f2)) visitor.visitString(f2, generated.i2);
+        if (generated.isSet(f3)) visitor.visitDouble(f3, generated.get_i3());
+        if (generated.isSet(f4)) visitor.visitIntegerArray(f4, generated.ia1);
         return visitor;
     }
 
