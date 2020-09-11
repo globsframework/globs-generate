@@ -40,7 +40,18 @@ public class AsmGeneratorTest {
         Assert.assertFalse(instantiate.isSet(l1));
         Assert.assertFalse(instantiate.isSet(la1));
 
+        Assert.assertTrue(instantiate.isNull(i1));
+        Assert.assertTrue(instantiate.isNull(d1));
+        Assert.assertTrue(instantiate.isNull(l1));
+        Assert.assertTrue(instantiate.isNull(la1));
+
+        Assert.assertNull(instantiate.get(i1));
+        Assert.assertNull(instantiate.get(d1));
+        Assert.assertNull(instantiate.get(l1));
+        Assert.assertNull(instantiate.get(la1));
+
         instantiate.set(i1, 2);
+        Assert.assertNotNull(instantiate.get(i1));
         Assert.assertTrue(instantiate.isSet(i1));
         Assert.assertFalse(instantiate.isSet(d1));
         Assert.assertFalse(instantiate.isSet(l1));

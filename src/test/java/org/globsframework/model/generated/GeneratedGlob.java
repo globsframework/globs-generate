@@ -30,7 +30,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     protected String i2;
     protected String[] ia2;
     protected double i3;
-    protected int nullFlag_1;
+    protected int nullFlag_1 = 0xFFFFFFFF;
     protected byte[] name;
     protected int isSet;
     protected int isSet2;
@@ -93,7 +93,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     }
 
     public Integer get_i1() {
-        return (nullFlag_1 & 0x1) == 0 ? i1 : null;
+        return (nullFlag_1 & 0x1) == 0 ? null : i1;
     }
 
     public void setNative_i1(int value) {
@@ -113,7 +113,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
     }
 
     public Double get_i3() {
-        return (nullFlag_1 & 0x1) == 0 ? i3 : null;
+        return (nullFlag_1 & 0x1) == 0 ? null : i3;
     }
 
     public void setNative_i3(double value) {

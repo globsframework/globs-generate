@@ -7,6 +7,7 @@ import org.globsframework.model.GlobFactory;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -357,8 +358,18 @@ public class AsmGlobGenerator {
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlob", "<init>", "()V", false);
+
+            int longNullCount = (globType.saveAccept(new CountNeedNullFieldVisitor()).count / 32) + 1;
+            {
+                for (int i = 0; i < longNullCount; i++) {
+                    methodVisitor.visitVarInsn(ALOAD, 0);
+                    methodVisitor.visitInsn(ICONST_M1);
+                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, NULL_FLAGS + i, "I");
+                }
+            }
+
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(1, 1);
+            methodVisitor.visitMaxs(longNullCount + 1, 1);
             methodVisitor.visitEnd();
         }
         {
@@ -1184,13 +1195,22 @@ public class AsmGlobGenerator {
                     "<T::Lorg/globsframework/metamodel/fields/FieldValueVisitor;>(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";TT;)TT;", new String[]{"java/lang/Exception"});
             methodVisitor.visitCode();
 
+            int varCount = 1;
             for (Field field : fields) {
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getName(field),
                         "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
                         "isSet", "(Lorg/globsframework/metamodel/Field;)Z", false);
+
+                methodVisitor.visitVarInsn(ISTORE, varCount += 1);
+            }
+
+            int iloadCount = 1;
+            boolean first = true;
+            for (Field field: fields){
                 Label label = new Label();
+                methodVisitor.visitVarInsn(ILOAD, iloadCount += 1);
                 methodVisitor.visitJumpInsn(IFEQ, label);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getName(field),
@@ -1224,12 +1244,23 @@ public class AsmGlobGenerator {
                         "(Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";" +
                                 field.safeVisit(visitor.withUserType()).name + ")V", true);
                 methodVisitor.visitLabel(label);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                if (first) {
+                    first = false;
+                    Object[] local = new Object[varCount + 1];
+                    Arrays.fill(local, INTEGER);
+                    local[0] = "org/globsframework/model/generated/GeneratedGlob_" + id;
+                    local[1] = "org/globsframework/metamodel/fields/FieldValueVisitor";
+                    methodVisitor.visitFrame(Opcodes.F_FULL, varCount + 1,
+                            local, 0, new Object[] {});
+                }
+                else {
+                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                }
             }
 
             methodVisitor.visitVarInsn(ALOAD, 1);
             methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(4, 2);
+            methodVisitor.visitMaxs(3, varCount + 1);
             methodVisitor.visitEnd();
         }
         {
@@ -2055,5 +2086,4 @@ public class AsmGlobGenerator {
             methodVisitor.visitInsn(ARETURN);
         }
     }
-
 }
