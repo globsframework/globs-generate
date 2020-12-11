@@ -1208,7 +1208,7 @@ public class AsmGlobGenerator {
 
             int iloadCount = 1;
             boolean first = true;
-            for (Field field: fields){
+            for (Field field : fields) {
                 Label label = new Label();
                 methodVisitor.visitVarInsn(ILOAD, iloadCount += 1);
                 methodVisitor.visitJumpInsn(IFEQ, label);
@@ -1251,9 +1251,8 @@ public class AsmGlobGenerator {
                     local[0] = "org/globsframework/model/generated/GeneratedGlob_" + id;
                     local[1] = "org/globsframework/metamodel/fields/FieldValueVisitor";
                     methodVisitor.visitFrame(Opcodes.F_FULL, varCount + 1,
-                            local, 0, new Object[] {});
-                }
-                else {
+                            local, 0, new Object[]{});
+                } else {
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                 }
             }
