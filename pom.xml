@@ -93,7 +93,6 @@
       <version>2.12.1</version>
       <scope>test</scope>
     </dependency>
-
     <dependency>
       <groupId>org.ow2.asm</groupId>
       <artifactId>asm</artifactId>
