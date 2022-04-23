@@ -353,8 +353,9 @@ public class GeneratedGlob extends AbstractGeneratedGlob {
 
     }
 
-    public void unset(Field field) {
+    public MutableGlob unset(Field field) {
         int index = field.getIndex();
         isSet &= ~(1 << index);
+        return this;
     }
 }

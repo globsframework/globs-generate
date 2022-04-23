@@ -874,7 +874,7 @@ public class AsmGlobGenerator {
 
         { // unset
             if (globType.getFieldCount() <= 32) {
-                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)V", null, null);
+                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/MutableGlob;", null, null);
                 methodVisitor.visitCode();
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
@@ -889,11 +889,12 @@ public class AsmGlobGenerator {
                 methodVisitor.visitInsn(IXOR);
                 methodVisitor.visitInsn(IAND);
                 methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + 0, "I");
-                methodVisitor.visitInsn(RETURN);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitInsn(ARETURN);
                 methodVisitor.visitMaxs(4, 3);
                 methodVisitor.visitEnd();
             } else {
-                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)V", null, null);
+                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/MutableGlob;", null, null);
                 methodVisitor.visitCode();
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
@@ -934,7 +935,8 @@ public class AsmGlobGenerator {
                 }
                 methodVisitor.visitLabel(label4);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitInsn(RETURN);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitInsn(ARETURN);
                 methodVisitor.visitMaxs(4, 3);
                 methodVisitor.visitEnd();
 
