@@ -6,7 +6,7 @@ import org.globsframework.model.GlobFactoryService;
 
 public class GeneratorGlobFactoryService implements GlobFactoryService {
 
-    public GlobFactory get(GlobType type) {
+    public GlobFactory getFactory(GlobType type) {
         return AsmGlobGenerator.create(type);
     }
 }
