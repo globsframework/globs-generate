@@ -4,6 +4,7 @@ import org.globsframework.metamodel.Field;
 import org.globsframework.metamodel.GlobType;
 import org.globsframework.metamodel.GlobTypeBuilder;
 import org.globsframework.metamodel.GlobTypeBuilderFactory;
+import org.globsframework.metamodel.annotations.AutoIncrementAnnotationType;
 import org.globsframework.metamodel.annotations.DefaultBooleanAnnotationType;
 import org.globsframework.metamodel.fields.*;
 import org.globsframework.model.MutableGlob;
@@ -141,6 +142,9 @@ public class AsmGeneratorTest {
     public void testAnnotations() {
         System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
         DefaultBooleanAnnotationType.TYPE.instantiate().set(DefaultBooleanAnnotationType.DEFAULT_VALUE, true);
+        final MutableGlob instantiate = AutoIncrementAnnotationType.TYPE.instantiate();
+        Assert.assertEquals(instantiate.getKey(), AutoIncrementAnnotationType.KEY);
+        Assert.assertSame(instantiate.getType(), AutoIncrementAnnotationType.TYPE);
     }
 
     @Test
@@ -160,6 +164,7 @@ public class AsmGeneratorTest {
             Assert.assertFalse(instantiate.isSet(field));
         }
         for (Field field : allField) {
+            Assert.assertTrue(instantiate.isNull(field));
             if (field.getName().contains("int")){
                 instantiate.setValue(field, 0);
             } else if (field.getName().contains("double")) {
@@ -168,6 +173,7 @@ public class AsmGeneratorTest {
                 instantiate.setValue(field, "STR");
             }
             Assert.assertTrue(instantiate.isSet(field));
+            Assert.assertFalse(instantiate.isNull(field));
         }
         for (Field field : allField) {
             Assert.assertTrue(instantiate.isSet(field));
@@ -176,7 +182,9 @@ public class AsmGeneratorTest {
         }
         for (Field field : allField) {
             Assert.assertFalse(instantiate.isSet(field));
+            Assert.assertTrue(instantiate.isNull(field));
             instantiate.setValue(field, null);
+            Assert.assertTrue(instantiate.isNull(field));
             Assert.assertTrue(instantiate.isSet(field));
         }
     }

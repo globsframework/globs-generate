@@ -7,7 +7,6 @@ import org.globsframework.model.GlobFactory;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
-import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
@@ -15,21 +14,14 @@ import java.util.stream.IntStream;
 import static org.objectweb.asm.Opcodes.*;
 
 
-// a simple GlobGenerator where all type are object, native type are not managed.
-
 public class AsmGlobGenerator {
     public static final Pattern COMPILE = Pattern.compile("[^\\w]");
-    public static final String SET_ACCESSOR = "SetAccessor";
-    public static final String GET_ACCESSOR = "GetAccessor";
-    public static final String NULL_FLAGS = "nullFlags_";
-    public static final String ISSET_FLAGS = "isSet_";
     public static GlobType TYPE;
     static AtomicInteger ID = new AtomicInteger();
 
-    public static GlobFactory create(GlobType globType) {
+    synchronized public static GlobFactory create(GlobType globType) {
         try {
             int id = ID.incrementAndGet();
-            TYPE = globType;
             ClassLoader bytesClassloader = new ClassLoader(AsmGlobGenerator.class.getClassLoader()) {
                 protected Class<?> findClass(String name) throws ClassNotFoundException {
                     if (name.replace('.', '/').equalsIgnoreCase("org/globsframework/model/generated/GeneratedGlobFactory_" + id)) {
@@ -38,31 +30,16 @@ public class AsmGlobGenerator {
                     } else if (name.replace('.', '/').equalsIgnoreCase("org/globsframework/model/generated/GeneratedGlob_" + id)) {
                         byte[] b = generateGlob(id, globType);
                         return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                    } else if (name.replace('.', '/').startsWith("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR)) {
-                        String fieldName = name.replace('.', '/').replace("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR, "");
-                        for (Field field : globType.getFields()) {
-                            if (fieldName.equals(getFieldName(field))) {
-                                byte[] b = generateGetInner(id, field);
-                                return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                            }
-                        }
-                        throw new RuntimeException("Can not find field " + fieldName + " got " + globType.describe());
-                    } else if (name.replace('.', '/').startsWith("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR)) {
-                        String fieldName = name.replace('.', '/').replace("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR, "");
-                        for (Field field : globType.getFields()) {
-                            if (fieldName.equals(getFieldName(field))) {
-                                byte[] b = generateSetInner(id, field);
-                                return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                            }
-                        }
-                        throw new RuntimeException("Can not find field " + fieldName + " got " + globType.describe());
                     } else {
                         return super.findClass(name);
                     }
                 }
             };
             try {
-                return (GlobFactory) bytesClassloader.loadClass("org/globsframework/model/generated/GeneratedGlobFactory_" + id).newInstance();
+                TYPE = globType;
+                return (GlobFactory) bytesClassloader.loadClass("org/globsframework/model/generated/GeneratedGlobFactory_" + id)
+                        .getDeclaredConstructor()
+                        .newInstance();
             } catch (Throwable e) {
                 throw new RuntimeException("fail ", e);
             }
@@ -73,13 +50,6 @@ public class AsmGlobGenerator {
 
     }
 
-    private static String getNullFieldName(int pos) {
-        return NULL_FLAGS + (pos / 32);
-    }
-
-    private static int getNullFieldIndex(int pos) {
-        return (pos / 32);
-    }
 
     private static int getIndex(int pos) {
         return pos - 32 * (int) (pos / 32);
@@ -89,267 +59,22 @@ public class AsmGlobGenerator {
         return COMPILE.matcher(field.getName()).replaceAll("_");
     }
 
-    public static byte[] generateGetInner(int id, Field field) {
-        ClassWriter classWriter = new ClassWriter(0);
-        FieldVisitor fieldVisitor;
-        MethodVisitor methodVisitor;
-        AnnotationVisitor annotationVisitor0;
-
-        FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
-
-
-        classWriter.visit(V1_8, ACC_SUPER, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field), null,
-                "org/globsframework/model/globaccessor/get/impl/" + field.safeVisit(visitor.withAbstractGetAccessor()).name, null);
-
-        classWriter.visitSource("GeneratedGlob.java", null);
-
-        classWriter.visitInnerClass("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field),
-                "org/globsframework/model/generated/GeneratedGlob_" + id, GET_ACCESSOR + getFieldName(field), ACC_PRIVATE | ACC_STATIC);
-
-
-        {
-            fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, "INSTANCE",
-                    "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field) + ";", null, null);
-            fieldVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "<init>", "()V", null, null);
-            methodVisitor.visitCode();
-            Label label0 = new Label();
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/globaccessor/get/impl/" + field.safeVisit(visitor.withAbstractGetAccessor()).name, "<init>", "()V", false);
-            methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(1, 1);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "get",
-                    "(Lorg/globsframework/model/Glob;)" + field.safeVisit(visitor.withUserType()).name, null, null);
-            methodVisitor.visitCode();
-
-            MethodVisitor finalMethodVisitor = methodVisitor;
-            field.safeVisit(new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                public void visitInteger(IntegerField field) throws Exception {
-                    int nullPos = getNullPos(field);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "get_" + getFieldName(field), "()Ljava/lang/Integer;", false);
-                }
-
-                public void visitDouble(DoubleField field) throws Exception {
-                    int nullPos = getNullPos(field);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "get_" + getFieldName(field), "()Ljava/lang/Double;", false);
-                }
-
-                public void visitLong(LongField field) throws Exception {
-                    int nullPos = getNullPos(field);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "get_" + getFieldName(field), "()Ljava/lang/Long;", false);
-                }
-
-                public void notManaged(Field field) throws Exception {
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getFieldName(field), field.safeVisit(visitor.withUserType()).name);
-                }
-            });
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
-            methodVisitor.visitCode();
-            Label label0 = new Label();
-            methodVisitor.visitLabel(label0);
-            methodVisitor.visitLineNumber(102, label0);
-            methodVisitor.visitTypeInsn(NEW, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field));
-            methodVisitor.visitInsn(DUP);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field), "<init>", "()V", false);
-            methodVisitor.visitFieldInsn(PUTSTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field), "INSTANCE",
-                    "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field) + ";");
-            methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(2, 0);
-            methodVisitor.visitEnd();
-        }
-        classWriter.visitEnd();
-
-        return classWriter.toByteArray();
-    }
-
-    public static byte[] generateSetInner(int id, Field field) {
-
-        ClassWriter classWriter = new ClassWriter(0);
-        FieldVisitor fieldVisitor;
-        MethodVisitor methodVisitor;
-        AnnotationVisitor annotationVisitor0;
-        FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
-
-        classWriter.visit(V1_8, ACC_FINAL | ACC_SUPER, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field), null,
-                "org/globsframework/model/globaccessor/set/impl/" + field.safeVisit(visitor.withAbstractSetAccessor()).name, null);
-
-
-        classWriter.visitInnerClass("org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field), "org/globsframework/model/generated/GeneratedGlob_" + id,
-                SET_ACCESSOR + getFieldName(field), ACC_PRIVATE | ACC_FINAL | ACC_STATIC);
-
-        {
-            fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, "INSTANCE",
-                    "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field) + ";", null, null);
-            fieldVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "<init>", "()V", null, null);
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/globaccessor/set/impl/" + field.safeVisit(visitor.withAbstractSetAccessor()).name, "<init>", "()V", false);
-            methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(1, 1);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "set", "(Lorg/globsframework/model/MutableGlob;" + field.safeVisit(visitor.withUserType()).name + ")V", null, null);
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 2);
-
-            MethodVisitor finalMethodVisitor = methodVisitor;
-            field.safeVisit(new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                public void visitInteger(IntegerField field) throws Exception {
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 2);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Integer");
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "set_" + getFieldName(field), "(Ljava/lang/Integer;)V", false);
-                }
-
-                public void visitDouble(DoubleField field) throws Exception {
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 2);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Double");
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "set_" + getFieldName(field), "(Ljava/lang/Double;)V", false);
-                }
-
-                public void visitLong(LongField field) throws Exception {
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 2);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Long");
-                    finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            "set_" + getFieldName(field), "(Ljava/lang/Long;)V", false);
-                }
-
-                public void notManaged(Field field) throws Exception {
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitVarInsn(ALOAD, 2);
-                    finalMethodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeVisit(visitor.withUserType()).name);
-
-                    finalMethodVisitor.visitVarInsn(ALOAD, 1);
-                    finalMethodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/model/generated/GeneratedGlob_" + id);
-                    finalMethodVisitor.visitInsn(DUP);
-                    finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getIsSetName(field.getIndex()), "I");
-                    finalMethodVisitor.visitLdcInsn(new Integer(getIsShiftedIndex(field.getIndex())));
-                    finalMethodVisitor.visitInsn(IOR);
-                    finalMethodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getIsSetName(field.getIndex()), "I");
-
-
-                    finalMethodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                }
-            });
-
-            methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(3, 3);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
-            methodVisitor.visitCode();
-            methodVisitor.visitTypeInsn(NEW, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field));
-            methodVisitor.visitInsn(DUP);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field), "<init>", "()V", false);
-            methodVisitor.visitFieldInsn(PUTSTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field), "INSTANCE",
-                    "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field) + ";");
-            methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(2, 0);
-            methodVisitor.visitEnd();
-        }
-        classWriter.visitEnd();
-
-        return classWriter.toByteArray();
-    }
-
-    private static String getIsSetName(int index) {
-        return ISSET_FLAGS + (index >> 5);
-    }
-
-    private static int getIsShiftedIndex(int index) {
-        return 1 << index;
-    }
-
-    private static int getNullPos(Field field) {
-        int nullPos = 0;
-        for (Field field1 : field.getGlobType().getFields()) {
-            if (field1 == field) {
-                break;
-            }
-            if (field instanceof DoubleField || field instanceof IntegerField) {
-                nullPos++;
-            }
-        }
-        return nullPos;
-    }
-
     public static byte[] generateGlob(int id, GlobType globType) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
         MethodVisitor methodVisitor;
         AnnotationVisitor annotationVisitor0;
-        FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
 
-        classWriter.visit(V1_8, ACC_PUBLIC | ACC_SUPER, "org/globsframework/model/generated/GeneratedGlob_" + id, null, "org/globsframework/model/generator/AbstractGeneratedGlob", null);
+        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, "org/globsframework/model/generated/GeneratedGlob_" + id, null,
+                "org/globsframework/model/generator/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), null);
 
 
         Field[] fields = globType.getFields();
-        for (Field field : fields) {
-            classWriter.visitInnerClass("org/globsframework/model/generated/GeneratedGlob_" + "$" + GET_ACCESSOR + getFieldName(field), "org/globsframework/model/generated/GeneratedGlob_" + id,
-                    GET_ACCESSOR + getFieldName(field), ACC_PRIVATE | ACC_STATIC);
-            classWriter.visitInnerClass("org/globsframework/model/generated/GeneratedGlob_" + "$" + SET_ACCESSOR + getFieldName(field), "org/globsframework/model/generated/GeneratedGlob_" + id,
-                    SET_ACCESSOR + getFieldName(field), ACC_PRIVATE | ACC_STATIC);
-        }
 
-
-        classWriter.visitInnerClass("org/globsframework/model/FieldValues$Functor", "org/globsframework/model/FieldValues", "Functor", ACC_PUBLIC | ACC_STATIC | ACC_ABSTRACT | ACC_INTERFACE);
-
-        {
-            int longNullCount = (globType.saveAccept(new CountNeedNullFieldVisitor()).count / 32) + 1;
-            for (int i = 0; i < longNullCount; i++) {
-                fieldVisitor = classWriter.visitField(ACC_PROTECTED, NULL_FLAGS + i, "I", null, null);
-                fieldVisitor.visitEnd();
-            }
-        }
-
-        {
-            int unsetCount = (fields.length >> 5) + 1; // 32 bit
-            for (int i = 0; i < unsetCount; i++) {
-                fieldVisitor = classWriter.visitField(ACC_PROTECTED, ISSET_FLAGS + i, "I", null, null);
-                fieldVisitor.visitEnd();
-            }
-        }
-
+        FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
         {
             for (Field field : fields) {
-                fieldVisitor = classWriter.visitField(ACC_PROTECTED, getFieldName(field), field.safeVisit(visitor.withWithNativeType()).name, null, null);
+                fieldVisitor = classWriter.visitField(ACC_PRIVATE, getFieldName(field), field.safeVisit(visitor.withWithNativeType()).name, null, null);
                 fieldVisitor.visitEnd();
             }
         }
@@ -357,75 +82,122 @@ public class AsmGlobGenerator {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlob", "<init>", "()V", false);
-
-            int longNullCount = (globType.saveAccept(new CountNeedNullFieldVisitor()).count / 32) + 1;
-            {
-                for (int i = 0; i < longNullCount; i++) {
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(ICONST_M1);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, NULL_FLAGS + i, "I");
-                }
-            }
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), "<init>", "()V", false);
 
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(longNullCount + 1, 1);
+            methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
         }
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doSet",
                     "(Lorg/globsframework/metamodel/Field;Ljava/lang/Object;)Lorg/globsframework/model/MutableGlob;", null, null);
             methodVisitor.visitCode();
+            Label labelReturn = new Label();
             if (fields.length != 0) {
-
-                methodVisitor.visitVarInsn(ALOAD, 2);
-                Label label1 = new Label();
-                methodVisitor.visitJumpInsn(IFNONNULL, label1);
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                        "setNull", "(Lorg/globsframework/metamodel/Field;)V", false);
-                Label labelReturn = new Label();
-                methodVisitor.visitJumpInsn(GOTO, labelReturn);
-                methodVisitor.visitLabel(label1);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
+                methodVisitor.visitVarInsn(ISTORE, 3);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "setSetAt", "(I)V", false);
+                methodVisitor.visitVarInsn(ALOAD, 2);
+
+                Label label0 = new Label();
+                methodVisitor.visitJumpInsn(IFNONNULL, label0);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitVarInsn(ALOAD, 1);
+                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,  "forceNull", "(Lorg/globsframework/metamodel/Field;I)V", false);
+                methodVisitor.visitJumpInsn(GOTO, labelReturn);
+
+                methodVisitor.visitLabel(label0);
+                methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "setNotNull", "(I)V", false);
+                methodVisitor.visitVarInsn(ILOAD, 3);
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
 
-                Label label = new Label();
-                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, label, labels);
+                Label defaultLabel = new Label();
+                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, defaultLabel, labels);
 
                 SetFieldVisitor setFieldVisitor = new SetFieldVisitor(methodVisitor, id, visitor);
                 for (int i = 0; i < fields.length; i++) {
                     Field field = fields[i];
                     methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                    methodVisitor.visitVarInsn(ALOAD, 0);
+                    methodVisitor.visitVarInsn(ALOAD, 2);
                     field.safeVisit(setFieldVisitor);
                     methodVisitor.visitJumpInsn(GOTO, labelReturn);
                 }
 
-                methodVisitor.visitLabel(label);
+                methodVisitor.visitLabel(defaultLabel);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                        "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+            }
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            methodVisitor.visitVarInsn(ALOAD, 1);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
+                    "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
 
+            if (fields.length != 0) {
                 methodVisitor.visitLabel(labelReturn);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(3, 3);
+            if (fields.length == 0) {
+                methodVisitor.visitMaxs(2, 3);
+            } else {
+                methodVisitor.visitMaxs(3, 4);
+            }
+            methodVisitor.visitEnd();
+        }
+
+        {
+            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "forceNull", "(Lorg/globsframework/metamodel/Field;I)V", null, null);
+            methodVisitor.visitCode();
+            Label returnLabel = new Label();
+            if (fields.length != 0) {
+                methodVisitor.visitVarInsn(ALOAD, 0);
+                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "setNull", "(I)V", false);
+                methodVisitor.visitVarInsn(ILOAD, 2);
+
+                Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
+
+                Label defaultLabel = new Label();
+                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, defaultLabel, labels);
+
+                for (int i = 0; i < fields.length; i++) {
+                    Field field = fields[i];
+                    methodVisitor.visitLabel(labels[i]);
+                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+                    methodVisitor.visitVarInsn(ALOAD, 0);
+                    field.safeVisit(new GenerateSetNullVisitor(methodVisitor, id));
+                    methodVisitor.visitJumpInsn(GOTO, returnLabel);
+                }
+                methodVisitor.visitLabel(defaultLabel);
+                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+            }
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            methodVisitor.visitVarInsn(ALOAD, 1);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+
+
+            if (fields.length != 0) {
+                methodVisitor.visitLabel(returnLabel);
+                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+            }
+            methodVisitor.visitInsn(RETURN);
+            methodVisitor.visitMaxs(fields.length == 0 ? 2 : 3, 3);
             methodVisitor.visitEnd();
         }
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "getType", "()Lorg/globsframework/metamodel/GlobType;", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "GLOB_TYPE", "Lorg/globsframework/metamodel/GlobType;");
+            methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "TYPE", "Lorg/globsframework/metamodel/GlobType;");
             methodVisitor.visitInsn(ARETURN);
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
@@ -433,601 +205,59 @@ public class AsmGlobGenerator {
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doGet", "(Lorg/globsframework/metamodel/Field;)Ljava/lang/Object;", null, null);
             methodVisitor.visitCode();
+            Label returnLabel = new Label();
             if (fields.length != 0) {
-
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
 
-                Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
-
-                Label label = new Label();
-                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, label, labels);
-
-                GetWithNullFieldVisitor getWithNullFieldVisitor = new GetWithNullFieldVisitor(methodVisitor, id, visitor);
-                for (int i = 0; i < fields.length; i++) {
-                    Field field = fields[i];
-                    methodVisitor.visitLabel(labels[i]);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    field.safeVisit(getWithNullFieldVisitor);
-                }
-                methodVisitor.visitLabel(label);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
-            }
-            methodVisitor.visitInsn(ACONST_NULL);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            generateSetNull("org/globsframework/model/generated/GeneratedGlob_" + id, globType, classWriter);
-        }
-        {
-            for (Field field : fields) {
-                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "get_" + getFieldName((field)),
-                        "()" + field.safeVisit(new FieldVisitorToVisitName().withUserType()).name, null, null);
-                MethodVisitor finalMethodVisitor = methodVisitor;
-                field.safeVisit(new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                    int nullPos = 0;
-
-                    public void visitInteger(IntegerField field) throws Exception {
-                        finalMethodVisitor.visitCode();
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                getNullFieldName(nullPos), "I");
-                        finalMethodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                        finalMethodVisitor.visitInsn(IAND);
-                        Label label1 = new Label();
-                        finalMethodVisitor.visitJumpInsn(IFNE, label1);
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
-                        finalMethodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
-                        Label label2 = new Label();
-                        finalMethodVisitor.visitJumpInsn(GOTO, label2);
-                        finalMethodVisitor.visitLabel(label1);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                        finalMethodVisitor.visitInsn(ACONST_NULL);
-                        finalMethodVisitor.visitLabel(label2);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Integer"});
-                        finalMethodVisitor.visitInsn(ARETURN);
-                        finalMethodVisitor.visitMaxs(2, 1);
-                        finalMethodVisitor.visitEnd();
-                        nullPos++;
-                    }
-
-                    public void visitDouble(DoubleField field) throws Exception {
-                        finalMethodVisitor.visitCode();
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                getNullFieldName(nullPos), "I");
-                        finalMethodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                        finalMethodVisitor.visitInsn(IAND);
-                        Label label1 = new Label();
-                        finalMethodVisitor.visitJumpInsn(IFNE, label1);
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
-                        finalMethodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
-                        Label label2 = new Label();
-                        finalMethodVisitor.visitJumpInsn(GOTO, label2);
-                        finalMethodVisitor.visitLabel(label1);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                        finalMethodVisitor.visitInsn(ACONST_NULL);
-                        finalMethodVisitor.visitLabel(label2);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Double"});
-                        finalMethodVisitor.visitInsn(ARETURN);
-                        finalMethodVisitor.visitMaxs(2, 1);
-                        finalMethodVisitor.visitEnd();
-                        nullPos++;
-                    }
-
-                    public void visitLong(LongField field) throws Exception {
-                        finalMethodVisitor.visitCode();
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                getNullFieldName(nullPos), "I");
-                        finalMethodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                        finalMethodVisitor.visitInsn(IAND);
-                        Label label1 = new Label();
-                        finalMethodVisitor.visitJumpInsn(IFNE, label1);
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
-                        finalMethodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
-                        Label label2 = new Label();
-                        finalMethodVisitor.visitJumpInsn(GOTO, label2);
-                        finalMethodVisitor.visitLabel(label1);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                        finalMethodVisitor.visitInsn(ACONST_NULL);
-                        finalMethodVisitor.visitLabel(label2);
-                        finalMethodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Long"});
-                        finalMethodVisitor.visitInsn(ARETURN);
-                        finalMethodVisitor.visitMaxs(2, 1);
-                        finalMethodVisitor.visitEnd();
-                        nullPos++;
-                    }
-
-                    public void notManaged(Field field) throws Exception {
-                        finalMethodVisitor.visitCode();
-                        finalMethodVisitor.visitVarInsn(ALOAD, 0);
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
-                        finalMethodVisitor.visitInsn(ARETURN);
-                        finalMethodVisitor.visitMaxs(1, 1);
-                        finalMethodVisitor.visitEnd();
-                    }
-                });
-            }
-        }
-        {
-            org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor getVisitor = new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                int nullPos = 0;
-
-                public void visitInteger(IntegerField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "setNative_" + getFieldName(field),
-                            "(" + field.safeVisit(new FieldVisitorToVisitName().withWithNativeType()).name + ")V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(ILOAD, 1);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getFieldName(field), "I");
-
-                    methodVisitor.visitInsn(RETURN);
-                    Label label3 = new Label();
-                    methodVisitor.visitLabel(label3);
-                    methodVisitor.visitMaxs(3, 2);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-
-                public void visitDouble(DoubleField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "setNative_" + getFieldName(field),
-                            "(" + field.safeVisit(new FieldVisitorToVisitName().withWithNativeType()).name + ")V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(DLOAD, 1);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getFieldName(field), "D");
-                    methodVisitor.visitInsn(RETURN);
-                    methodVisitor.visitMaxs(3, 3);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-
-                public void visitLong(LongField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "setNative_" + getFieldName(field),
-                            "(" + field.safeVisit(new FieldVisitorToVisitName().withWithNativeType()).name + ")V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(LLOAD, 1);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getFieldName(field), "J");
-                    methodVisitor.visitInsn(RETURN);
-                    methodVisitor.visitMaxs(3, 3);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-            };
-            for (Field field : fields) {
-                field.safeVisit(getVisitor);
-            }
-        }
-        {
-            org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor setVisitor = new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                int nullPos = 0;
-
-                public void visitInteger(IntegerField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "set_" + getFieldName(field),
-                            "(Ljava/lang/Integer;)V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    Label label1 = new Label();
-                    methodVisitor.visitJumpInsn(IFNONNULL, label1);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                    methodVisitor.visitInsn(IOR);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    Label label3 = new Label();
-                    methodVisitor.visitJumpInsn(GOTO, label3);
-                    methodVisitor.visitLabel(label1);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
-                    methodVisitor.visitLabel(label3);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitInsn(RETURN);
-                    methodVisitor.visitMaxs(3, 2);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-
-                public void visitDouble(DoubleField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "set_" + getFieldName(field),
-                            "(Ljava/lang/Double;)V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    Label label1 = new Label();
-                    methodVisitor.visitJumpInsn(IFNONNULL, label1);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                    methodVisitor.visitInsn(IOR);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    Label label3 = new Label();
-                    methodVisitor.visitJumpInsn(GOTO, label3);
-                    methodVisitor.visitLabel(label1);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
-                    methodVisitor.visitLabel(label3);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitInsn(RETURN);
-                    methodVisitor.visitMaxs(3, 2);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-
-                public void visitLong(LongField field) throws Exception {
-                    MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "set_" + getFieldName(field),
-                            "(Ljava/lang/Long;)V", null, null);
-                    methodVisitor.visitCode();
-
-                    generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    Label label1 = new Label();
-                    methodVisitor.visitJumpInsn(IFNONNULL, label1);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-                    methodVisitor.visitInsn(IOR);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    Label label3 = new Label();
-                    methodVisitor.visitJumpInsn(GOTO, label3);
-                    methodVisitor.visitLabel(label1);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                            getNullFieldName(nullPos), "I");
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
-                    methodVisitor.visitLabel(label3);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitInsn(RETURN);
-                    methodVisitor.visitMaxs(3, 2);
-                    methodVisitor.visitEnd();
-                    nullPos++;
-                }
-            };
-            for (Field field : fields) {
-                field.safeVisit(setVisitor);
-            }
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "accept",
-                    "(Lorg/globsframework/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/metamodel/fields/FieldValueVisitor;",
-                    "<T::Lorg/globsframework/metamodel/fields/FieldValueVisitor;>(TT;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "acceptValueStatic",
-                    "(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";Lorg/globsframework/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/metamodel/fields/FieldValueVisitor;", false);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "apply", "(Lorg/globsframework/model/FieldValues$Functor;)Lorg/globsframework/model/FieldValues$Functor;", "<T::Lorg/globsframework/model/FieldValues$Functor;>(TT;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "processValue",
-                    "(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";Lorg/globsframework/model/FieldValues$Functor;)Lorg/globsframework/model/FieldValues$Functor;", false);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, "getSetAccessor",
-                    "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/set/GlobSetAccessor;", null, null);
-            methodVisitor.visitCode();
-            if (fields.length != 0) {
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-
-                Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
-
-                Label label = new Label();
-                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, label, labels);
-
-                for (int i = 0; i < fields.length; i++) {
-                    Field field = fields[i];
-                    methodVisitor.visitLabel(labels[i]);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field), "INSTANCE",
-                            "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + SET_ACCESSOR + getFieldName(field) + ";");
-                    methodVisitor.visitInsn(ARETURN);
-                }
-
-                methodVisitor.visitLabel(label);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "GLOB_TYPE", "Lorg/globsframework/metamodel/GlobType;");
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/GlobType;Lorg/globsframework/metamodel/Field;)V", false);
-            }
-            methodVisitor.visitInsn(ACONST_NULL);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 1);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, "getGetAccessor",
-                    "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/get/GlobGetAccessor;", null, null);
-            methodVisitor.visitCode();
-
-            if (fields.length != 0) {
-
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-
-                Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
-
-                Label label = new Label();
-                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, label, labels);
-
-                for (int i = 0; i < fields.length; i++) {
-                    Field field = fields[i];
-                    methodVisitor.visitLabel(labels[i]);
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field), "INSTANCE",
-                            "Lorg/globsframework/model/generated/GeneratedGlob_" + id + "$" + GET_ACCESSOR + getFieldName(field) + ";");
-                    methodVisitor.visitInsn(ARETURN);
-                }
-                methodVisitor.visitLabel(label);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "GLOB_TYPE", "Lorg/globsframework/metamodel/GlobType;");
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError",
-                        "(Lorg/globsframework/metamodel/GlobType;Lorg/globsframework/metamodel/Field;)V", false);
-            }
-            methodVisitor.visitInsn(ACONST_NULL);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 1);
-            methodVisitor.visitEnd();
-        }
-
-        { // unset
-            if (globType.getFieldCount() <= 32) {
-                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/MutableGlob;", null, null);
-                methodVisitor.visitCode();
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
                 methodVisitor.visitVarInsn(ISTORE, 2);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitInsn(DUP);
-                methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + 0, "I");
-                methodVisitor.visitInsn(ICONST_1);
                 methodVisitor.visitVarInsn(ILOAD, 2);
-                methodVisitor.visitInsn(ISHL);
-                methodVisitor.visitInsn(ICONST_M1);
-                methodVisitor.visitInsn(IXOR);
-                methodVisitor.visitInsn(IAND);
-                methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + 0, "I");
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "isNull", "(I)Z", false);
+                Label label0 = new Label();
+                methodVisitor.visitJumpInsn(IFNE, label0);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitInsn(ARETURN);
-                methodVisitor.visitMaxs(4, 3);
-                methodVisitor.visitEnd();
-            } else {
-                methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "unset", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/MutableGlob;", null, null);
-                methodVisitor.visitCode();
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-                methodVisitor.visitVarInsn(ISTORE, 2);
                 methodVisitor.visitVarInsn(ILOAD, 2);
-                methodVisitor.visitInsn(ICONST_5);
-                methodVisitor.visitInsn(ISHR);
-                int unsetCount = (fields.length >> 5) + 1; // 32 bit
-                Label[] labelList = new Label[unsetCount];
-                int[] index = new int[unsetCount];
-                for (int i = 0; i < unsetCount; i++) {
-                    labelList[i] = new Label();
-                    index[i] = i;
-                }
-                Label label4 = new Label();
-                methodVisitor.visitLookupSwitchInsn(label4, index, labelList);
-
-                for (int i = 0; i < labelList.length; i++) {
-                    Label label = labelList[i];
-                    methodVisitor.visitLabel(label);
-
-                    if (i == 0) {
-                        methodVisitor.visitFrame(F_APPEND, 1, new Object[]{INTEGER}, 0, null);
-                    } else {
-                        methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                    }
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitInsn(DUP);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + i, "I");
-                    methodVisitor.visitInsn(ICONST_1);
-                    methodVisitor.visitVarInsn(ILOAD, 2);
-                    methodVisitor.visitInsn(ISHL);
-                    methodVisitor.visitInsn(ICONST_M1);
-                    methodVisitor.visitInsn(IXOR);
-                    methodVisitor.visitInsn(IAND);
-                    methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + i, "I");
-                    methodVisitor.visitJumpInsn(GOTO, label4);
-                }
-                methodVisitor.visitLabel(label4);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "isSetAt", "(I)Z", false);
+                Label label1 = new Label();
+                methodVisitor.visitJumpInsn(IFNE, label1);
+                methodVisitor.visitLabel(label0);
+                methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
+                methodVisitor.visitInsn(ACONST_NULL);
+                methodVisitor.visitInsn(ARETURN);
+                methodVisitor.visitLabel(label1);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitInsn(ARETURN);
-                methodVisitor.visitMaxs(4, 3);
-                methodVisitor.visitEnd();
+                methodVisitor.visitVarInsn(ILOAD, 2);
 
-            }
-            {  //iset
-                if (globType.getFieldCount() <= 32) {
-                    methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "isSet", "(Lorg/globsframework/metamodel/Field;)Z", null, new String[]{"org/globsframework/utils/exceptions/ItemNotFound"});
-                    methodVisitor.visitCode();
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-                    methodVisitor.visitVarInsn(ISTORE, 2);
-                    methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, ISSET_FLAGS + 0, "I");
-                    methodVisitor.visitInsn(ICONST_1);
-                    methodVisitor.visitVarInsn(ILOAD, 2);
-                    methodVisitor.visitInsn(ISHL);
-                    methodVisitor.visitInsn(IAND);
-                    Label label2 = new Label();
-                    methodVisitor.visitJumpInsn(IFEQ, label2);
-                    methodVisitor.visitInsn(ICONST_1);
-                    Label label3 = new Label();
-                    methodVisitor.visitJumpInsn(GOTO, label3);
-                    methodVisitor.visitLabel(label2);
-                    methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
-                    methodVisitor.visitInsn(ICONST_0);
-                    methodVisitor.visitLabel(label3);
-                    methodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{Opcodes.INTEGER});
-                    methodVisitor.visitInsn(IRETURN);
-                    methodVisitor.visitMaxs(3, 3);
-                    methodVisitor.visitEnd();
-                } else {
-                    methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "isSet", "(Lorg/globsframework/metamodel/Field;)Z", null, new String[]{"org/globsframework/utils/exceptions/ItemNotFound"});
-                    methodVisitor.visitCode();
-                    Label label0 = new Label();
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-                    methodVisitor.visitVarInsn(ISTORE, 2);
-                    methodVisitor.visitVarInsn(ILOAD, 2);
-                    methodVisitor.visitInsn(ICONST_5);
-                    methodVisitor.visitInsn(ISHR);
 
-                    int unsetCount = (fields.length >> 5) + 1; // 32 bit
-                    Label[] labelList = new Label[unsetCount];
-                    int[] index = new int[unsetCount];
-                    for (int i = 0; i < unsetCount; i++) {
-                        labelList[i] = new Label();
-                        index[i] = i;
-                    }
-                    Label label4 = new Label();
-                    methodVisitor.visitLookupSwitchInsn(label4, index, labelList);
+                Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
 
-                    for (int i = 0; i < labelList.length; i++) {
-                        Label label = labelList[i];
-                        if (i == 0) {
-                            methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
-                        } else {
-                            methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                        }
+                Label defaultLabel = new Label();
+                methodVisitor.visitTableSwitchInsn(0, fields.length - 1, defaultLabel, labels);
 
-                        methodVisitor.visitLabel(label);
-                        methodVisitor.visitVarInsn(ALOAD, 0);
-                        methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                ISSET_FLAGS + i, "I");
-                        methodVisitor.visitInsn(ICONST_1);
-                        methodVisitor.visitVarInsn(ILOAD, 2);
-                        methodVisitor.visitInsn(ISHL);
-                        methodVisitor.visitInsn(IAND);
-                        Label label5 = new Label();
-                        methodVisitor.visitJumpInsn(IFEQ, label5);
-                        methodVisitor.visitInsn(ICONST_1);
-                        Label label6 = new Label();
-                        methodVisitor.visitJumpInsn(GOTO, label6);
-                        methodVisitor.visitLabel(label5);
-                        methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                        methodVisitor.visitInsn(ICONST_0);
-                        methodVisitor.visitLabel(label6);
-                        methodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{Opcodes.INTEGER});
-                        methodVisitor.visitInsn(IRETURN);
-                    }
-
-                    methodVisitor.visitLabel(label4);
+                for (int i = 0; i < fields.length; i++) {
+                    Field field = fields[i];
+                    methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
-                    methodVisitor.visitVarInsn(ALOAD, 1);
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
-                    methodVisitor.visitInsn(ICONST_0);
-                    methodVisitor.visitInsn(IRETURN);
-                    methodVisitor.visitMaxs(3, 3);
-                    methodVisitor.visitEnd();
+                    field.safeVisit(new GenerateGetVisitor(methodVisitor, id));
+                    methodVisitor.visitJumpInsn(GOTO, returnLabel);
                 }
+
+                methodVisitor.visitLabel(defaultLabel);
+                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            methodVisitor.visitVarInsn(ALOAD, 1);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+            methodVisitor.visitInsn(ACONST_NULL);
+            if (fields.length != 0) {
+                methodVisitor.visitLabel(returnLabel);
+                methodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Object"});
+            }
+            methodVisitor.visitInsn(ARETURN);
+            methodVisitor.visitMaxs(2, fields.length == 0 ? 2 : 3);
+            methodVisitor.visitEnd();
         }
 
         classWriter.visitEnd();
@@ -1042,33 +272,23 @@ public class AsmGlobGenerator {
         MethodVisitor methodVisitor;
         AnnotationVisitor annotationVisitor0;
 
-        classWriter.visit(V1_8, ACC_PUBLIC | ACC_SUPER, "org/globsframework/model/generated/GeneratedGlobFactory_" + id,
-                null, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", null);
-
-        classWriter.visitInnerClass("org/globsframework/model/FieldValues$Functor", "org/globsframework/model/FieldValues",
-                "Functor", ACC_PUBLIC | ACC_STATIC | ACC_ABSTRACT | ACC_INTERFACE);
+        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, "org/globsframework/model/generated/GeneratedGlobFactory_" + id,
+                null, "org/globsframework/metamodel/impl/DefaultGlobFactory", null);
 
         {
-            fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, "GLOB_TYPE",
+            fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, "TYPE",
                     "Lorg/globsframework/metamodel/GlobType;", null, null);
             fieldVisitor.visitEnd();
         }
 
-        FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
-
-        Field[] fields = globType.getFields();
-        for (Field field : fields) {
-            fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, getFieldName(field),
-                    "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";", null, null);
-            fieldVisitor.visitEnd();
-        }
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", "<init>", "()V", false);
+            methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "TYPE", "Lorg/globsframework/metamodel/GlobType;");
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/metamodel/impl/DefaultGlobFactory", "<init>", "(Lorg/globsframework/metamodel/GlobType;)V", false);
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(1, 1);
+            methodVisitor.visitMaxs(2, 1);
             methodVisitor.visitEnd();
         }
         {
@@ -1082,286 +302,18 @@ public class AsmGlobGenerator {
             methodVisitor.visitEnd();
         }
         {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "accept", "(Lorg/globsframework/metamodel/fields/FieldVisitor;)Lorg/globsframework/metamodel/fields/FieldVisitor;",
-                    "<T::Lorg/globsframework/metamodel/fields/FieldVisitor;>(TT;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-            for (Field field : fields) {
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                String type = field.safeVisit(visitor.withFieldType()).name;
-                String method = field.safeVisit(visitor.withMethodVisitor()).name;
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + type + ";");
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/FieldVisitor",
-                        method, "(Lorg/globsframework/metamodel/fields/" + type + ";)V", true);
-            }
-
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "accept",
-                    "(Lorg/globsframework/metamodel/fields/FieldVisitorWithContext;Ljava/lang/Object;)Lorg/globsframework/metamodel/fields/FieldVisitorWithContext;",
-                    "<T::Lorg/globsframework/metamodel/fields/FieldVisitorWithContext<TC;>;C:Ljava/lang/Object;>(TT;TC;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-            for (Field field : fields) {
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-                methodVisitor.visitVarInsn(ALOAD, 2);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/FieldVisitorWithContext",
-                        field.safeVisit(visitor.withMethodVisitor()).name,
-                        "(Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";Ljava/lang/Object;)V", true);
-            }
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(3, 3);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "accept",
-                    "(Lorg/globsframework/metamodel/fields/FieldVisitorWithTwoContext;Ljava/lang/Object;Ljava/lang/Object;)Lorg/globsframework/metamodel/fields/FieldVisitorWithTwoContext;",
-                    "<T::Lorg/globsframework/metamodel/fields/FieldVisitorWithTwoContext<TC;TD;>;C:Ljava/lang/Object;D:Ljava/lang/Object;>(TT;TC;TD;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-
-            for (Field field : fields) {
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-                methodVisitor.visitVarInsn(ALOAD, 2);
-                methodVisitor.visitVarInsn(ALOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/FieldVisitorWithTwoContext",
-                        field.safeVisit(visitor.withMethodVisitor()).name,
-                        "(Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";Ljava/lang/Object;Ljava/lang/Object;)V", true);
-            }
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(4, 4);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, "processValue",
-                    "(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";Lorg/globsframework/model/FieldValues$Functor;)Lorg/globsframework/model/FieldValues$Functor;",
-                    "<T::Lorg/globsframework/model/FieldValues$Functor;>(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";TT;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-            for (Field field : fields) {
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                        "isSet", "(Lorg/globsframework/metamodel/Field;)Z", false);
-
-                Label label = new Label();
-                methodVisitor.visitJumpInsn(IFEQ, label);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                MethodVisitor finalMethodVisitor = methodVisitor;
-                field.safeVisit(new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                    public void visitInteger(IntegerField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Integer;", false);
-                    }
-
-                    public void visitLong(LongField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Long;", false);
-                    }
-
-                    public void visitDouble(DoubleField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Double;", false);
-                    }
-
-                    public void notManaged(Field field) throws Exception {
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                getFieldName(field), field.safeVisit(visitor.withWithNativeType()).name);
-                    }
-                });
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/model/FieldValues$Functor", "process",
-                        "(Lorg/globsframework/metamodel/Field;Ljava/lang/Object;)V", true);
-                methodVisitor.visitLabel(label);
-                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            }
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(4, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_STATIC, "acceptValueStatic",
-                    "(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";Lorg/globsframework/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/metamodel/fields/FieldValueVisitor;",
-                    "<T::Lorg/globsframework/metamodel/fields/FieldValueVisitor;>(Lorg/globsframework/model/generated/GeneratedGlob_" + id + ";TT;)TT;", new String[]{"java/lang/Exception"});
-            methodVisitor.visitCode();
-
-            int varCount = 1;
-            for (Field field : fields) {
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                        "isSet", "(Lorg/globsframework/metamodel/Field;)Z", false);
-
-                methodVisitor.visitVarInsn(ISTORE, varCount += 1);
-            }
-
-            int iloadCount = 1;
-            boolean first = true;
-            for (Field field : fields) {
-                Label label = new Label();
-                methodVisitor.visitVarInsn(ILOAD, iloadCount += 1);
-                methodVisitor.visitJumpInsn(IFEQ, label);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field),
-                        "Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";");
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                MethodVisitor finalMethodVisitor = methodVisitor;
-                field.safeVisit(new org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor() {
-                    public void visitInteger(IntegerField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Integer;", false);
-                    }
-
-                    public void visitLong(LongField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Long;", false);
-                    }
-
-                    public void visitDouble(DoubleField field) throws Exception {
-                        finalMethodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                                "get_" + getFieldName(field), "()Ljava/lang/Double;", false);
-                    }
-
-                    public void notManaged(Field field) throws Exception {
-                        finalMethodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field),
-                                field.safeVisit(visitor.withWithNativeType()).name);
-
-                    }
-                });
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/FieldValueVisitor",
-                        field.safeVisit(visitor.withMethodVisitor()).name,
-                        "(Lorg/globsframework/metamodel/fields/" + field.safeVisit(visitor.withFieldType()).name + ";" +
-                                field.safeVisit(visitor.withUserType()).name + ")V", true);
-                methodVisitor.visitLabel(label);
-                if (first) {
-                    first = false;
-                    Object[] local = new Object[varCount + 1];
-                    Arrays.fill(local, INTEGER);
-                    local[0] = "org/globsframework/model/generated/GeneratedGlob_" + id;
-                    local[1] = "org/globsframework/metamodel/fields/FieldValueVisitor";
-                    methodVisitor.visitFrame(Opcodes.F_FULL, varCount + 1,
-                            local, 0, new Object[]{});
-                } else {
-                    methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                }
-            }
-
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(3, varCount + 1);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "getSetValueAccessor", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/set/GlobSetAccessor;", null, null);
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id, "getSetAccessor", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/set/GlobSetAccessor;", false);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(1, 2);
-            methodVisitor.visitEnd();
-        }
-        {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "getGetValueAccessor", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/get/GlobGetAccessor;", null, null);
-            methodVisitor.visitCode();
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generated/GeneratedGlob_" + id, "getGetAccessor", "(Lorg/globsframework/metamodel/Field;)Lorg/globsframework/model/globaccessor/get/GlobGetAccessor;", false);
-            methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(1, 2);
-            methodVisitor.visitEnd();
-        }
-        {
             methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generator/AsmGlobGenerator", "TYPE", "Lorg/globsframework/metamodel/GlobType;");
-            methodVisitor.visitFieldInsn(PUTSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "GLOB_TYPE", "Lorg/globsframework/metamodel/GlobType;");
-
-            for (Field field : fields) {
-                methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "GLOB_TYPE", "Lorg/globsframework/metamodel/GlobType;");
-                methodVisitor.visitLdcInsn(field.getName());
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/GlobType", "getField", "(Ljava/lang/String;)Lorg/globsframework/metamodel/Field;", true);
-                String typeName = field.safeVisit(visitor.withFieldType()).name;
-                methodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/metamodel/fields/" + typeName);
-                methodVisitor.visitFieldInsn(PUTSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, getFieldName(field), "Lorg/globsframework/metamodel/fields/" + typeName + ";");
-            }
+            methodVisitor.visitFieldInsn(PUTSTATIC, "org/globsframework/model/generated/GeneratedGlobFactory_" + id, "TYPE", "Lorg/globsframework/metamodel/GlobType;");
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(2, 0);
+            methodVisitor.visitMaxs(1, 0);
             methodVisitor.visitEnd();
         }
-        classWriter.visitEnd();
 
         return classWriter.toByteArray();
     }
 
-    private static void generateSetNull(String className, GlobType globType, ClassWriter cw) {
-        MethodVisitor cv;
-        cv = cw.visitMethod(ACC_PRIVATE, "setNull", "(Lorg/globsframework/metamodel/Field;)V", null, null);
-        cv.visitCode();
-
-        if (globType.getFieldCount() == 0) {
-            cv.visitInsn(RETURN);
-            cv.visitMaxs(3, 2);
-        } else {
-            cv.visitVarInsn(ALOAD, 1);
-            cv.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
-
-            Label lEnd = new Label();
-            Label[] labels = new Label[globType.getFieldCount()];
-            int i = 0;
-            for (Field field : globType.getFields()) {
-                labels[i] = new Label();
-                i++;
-            }
-
-            Label lThrow = new Label();
-
-            cv.visitTableSwitchInsn(0, globType.getFieldCount() - 1, lThrow, labels);
-
-            SetNullFieldVisitor setNullFieldVisitor = new SetNullFieldVisitor(className, cv);
-            i = 0;
-            for (Field field : globType.getFields()) {
-                cv.visitLabel(labels[i]);
-                cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                cv.visitVarInsn(ALOAD, 0);
-                field.safeVisit(setNullFieldVisitor);
-                cv.visitJumpInsn(GOTO, lEnd);
-                ++i;
-            }
-            cv.visitLabel(lThrow);
-            cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            cv.visitVarInsn(ALOAD, 0);
-            cv.visitVarInsn(ALOAD, 1);
-            cv.visitMethodInsn(INVOKEVIRTUAL, className, "throwError",
-                    "(Lorg/globsframework/metamodel/Field;)V", false);
-            cv.visitLabel(lEnd);
-            cv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            cv.visitInsn(RETURN);
-            cv.visitMaxs(3, 2);
-        }
-    }
-
-    private static void generateSetFlag(Field field, MethodVisitor methodVisitor, String className) {
-        methodVisitor.visitVarInsn(ALOAD, 0);
-        methodVisitor.visitInsn(DUP);
-        methodVisitor.visitFieldInsn(GETFIELD, className,
-                getIsSetName(field.getIndex()), "I");
-        methodVisitor.visitLdcInsn(new Integer(getIsShiftedIndex(field.getIndex())));
-        methodVisitor.visitInsn(IOR);
-        methodVisitor.visitFieldInsn(PUTFIELD, className,
-                getIsSetName(field.getIndex()), "I");
-    }
 
     private enum SpecificName {
         visitor,
@@ -1494,6 +446,34 @@ public class AsmGlobGenerator {
             }
         }
 
+        public void visitBoolean(BooleanField field) {
+            isArray = false;
+            switch (characteristic) {
+                case visitor:
+                    name = "visitBoolean";
+                    break;
+                case fieldType:
+                    name = "BooleanField";
+                    break;
+                case outputType:
+                    name = "Ljava/lang/Boolean;";
+                    break;
+                case nativeType:
+                    name = "Z";
+                    break;
+                case outputTypeSimple:
+                    name = "java/lang/Boolean";
+                    break;
+                case getAccessor:
+                    name = "AbstractGlobGetBooleanAccessor";
+                    break;
+                case setAccessor:
+                    name = "AbstractGlobSetBooleanAccessor";
+                    break;
+            }
+        }
+
+
         public void visitDoubleArray(DoubleArrayField field) {
             isArray = true;
             switch (characteristic) {
@@ -1609,31 +589,6 @@ public class AsmGlobGenerator {
                     break;
                 case setAccessor:
                     name = "AbstractGlobSetStringArrayAccessor";
-                    break;
-            }
-        }
-
-        public void visitBoolean(BooleanField field) {
-            isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBoolean";
-                    break;
-                case fieldType:
-                    name = "BooleanField";
-                    break;
-                case outputType:
-                case nativeType:
-                    name = "Ljava/lang/Boolean;";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/Boolean";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBooleanAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBooleanAccessor";
                     break;
             }
         }
@@ -1881,39 +836,10 @@ public class AsmGlobGenerator {
         }
     }
 
-    private static class CountNeedNullFieldVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
-        int count = 0;
-
-        public void visitInteger(IntegerField field) throws Exception {
-            count++;
-        }
-
-        public void visitDouble(DoubleField field) throws Exception {
-            count++;
-        }
-
-        public void visitLong(LongField field) throws Exception {
-            count++;
-        }
-
-//        public void visitBoolean(BooleanField field) throws Exception {
-        //            count++;
-//        }
-
-//        public void visitDate(DateField field) throws Exception {
-//            count++;
-//        }
-//
-//        public void visitDateTime(DateTimeField field) throws Exception {
-//            count++;
-//        }
-    }
-
     private static class SetFieldVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
         private final MethodVisitor methodVisitor;
         private final int id;
         private final FieldVisitorToVisitName visitor;
-        private int nullPos = 0;
 
         public SetFieldVisitor(MethodVisitor methodVisitor, int id, FieldVisitorToVisitName visitor) {
             this.methodVisitor = methodVisitor;
@@ -1922,169 +848,103 @@ public class AsmGlobGenerator {
         }
 
         public void visitInteger(IntegerField field) throws Exception {
-
-            generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 2);
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Integer");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitInsn(DUP);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-            methodVisitor.visitInsn(IAND);
-            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            nullPos++;
         }
 
         public void visitLong(LongField field) throws Exception {
-
-            generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 2);
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Long");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitInsn(DUP);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-            methodVisitor.visitInsn(IAND);
-            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            nullPos++;
         }
 
         public void visitDouble(DoubleField field) throws Exception {
-
-            generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 2);
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Double");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitInsn(DUP);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            methodVisitor.visitLdcInsn(~(1 << getIndex(nullPos)));
-            methodVisitor.visitInsn(IAND);
-            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            nullPos++;
+        }
+
+        public void visitBoolean(BooleanField field) throws Exception {
+            methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Boolean");
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
         }
 
         public void notManaged(Field field) throws Exception {
-
-            generateSetFlag(field, methodVisitor, "org/globsframework/model/generated/GeneratedGlob_" + id);
-
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 2);
-            FieldVisitorToVisitName fieldVisitorToVisitName = field.safeVisit(visitor.withSimpleUserType());
-            methodVisitor.visitTypeInsn(CHECKCAST, fieldVisitorToVisitName.name);
-            if (fieldVisitorToVisitName.isArray) {
-                methodVisitor.visitTypeInsn(CHECKCAST, fieldVisitorToVisitName.name);
-            }
+            methodVisitor.visitTypeInsn(CHECKCAST, field.safeVisit(visitor.withSimpleUserType()).name);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeVisit(visitor.withUserType()).name);
         }
     }
 
-    private static class SetNullFieldVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
-        private int nullPos = 0;
-        private String className;
-        private MethodVisitor cv;
-
-        public SetNullFieldVisitor(String className, MethodVisitor cv) {
-            this.className = className;
-            this.cv = cv;
-        }
-
-        public void visitInteger(IntegerField field) {
-            setNullFlag(field);
-        }
-
-        public void visitLong(LongField field) {
-            setNullFlag(field);
-        }
-
-        public void visitDouble(DoubleField field) {
-            setNullFlag(field);
-        }
-
-        private void setNullFlag(Field field) {
-            cv.visitInsn(DUP);
-            cv.visitFieldInsn(GETFIELD, className, getNullFieldName(nullPos), "I");
-            cv.visitLdcInsn(1 << getIndex(nullPos));
-            cv.visitInsn(IOR);
-            cv.visitFieldInsn(PUTFIELD, className, getNullFieldName(nullPos), "I");
-
-            generateSetFlag(field, cv, className);
-
-            nullPos++;
-        }
-
-        public void notManaged(Field field) {
-            cv.visitInsn(ACONST_NULL);
-            cv.visitFieldInsn(PUTFIELD, className, getFieldName(field),
-                    field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
-
-            generateSetFlag(field, cv, className);
-        }
-    }
-
-    private static class GetWithNullFieldVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
+    private static class GenerateGetVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
         private final MethodVisitor methodVisitor;
         private final int id;
-        private final FieldVisitorToVisitName visitor;
-        private int nullPos = 0;
 
-        public GetWithNullFieldVisitor(MethodVisitor methodVisitor, int id, FieldVisitorToVisitName visitor) {
+        public GenerateGetVisitor(MethodVisitor methodVisitor, int id) {
             this.methodVisitor = methodVisitor;
             this.id = id;
-            this.visitor = visitor;
         }
 
         public void visitInteger(IntegerField field) throws Exception {
-            generateGet(getFieldName(field), "I", "java/lang/Integer");
-            nullPos++;
-        }
-
-        public void visitLong(LongField field) throws Exception {
-            generateGet(getFieldName(field), "J", "java/lang/Long");
-            nullPos++;
+            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
         }
 
         public void visitDouble(DoubleField field) throws Exception {
-            generateGet(getFieldName(field), "D", "java/lang/Double");
-            nullPos++;
+            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
         }
 
-        private void generateGet(String name, String nativeType, String objectType) {
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getNullFieldName(nullPos), "I");
-            methodVisitor.visitLdcInsn(1 << getIndex(nullPos));
-            methodVisitor.visitInsn(IAND);
-            Label label1 = new Label();
-            methodVisitor.visitJumpInsn(IFNE, label1);
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, name, nativeType);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, objectType, "valueOf", "(" + nativeType + ")L" + objectType + ";", false);
-            Label label2 = new Label();
-            methodVisitor.visitJumpInsn(GOTO, label2);
-            methodVisitor.visitLabel(label1);
-            methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            methodVisitor.visitInsn(ACONST_NULL);
-            methodVisitor.visitLabel(label2);
-            methodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{objectType});
-            methodVisitor.visitInsn(ARETURN);
+        public void visitLong(LongField field) throws Exception {
+            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
+        }
+
+        public void visitBoolean(BooleanField field) throws Exception {
+            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
         }
 
         public void notManaged(Field field) throws Exception {
-            methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeVisit(visitor.withUserType()).name);
-            methodVisitor.visitInsn(ARETURN);
+            methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
+                    getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
+        }
+    }
+
+    private static class GenerateSetNullVisitor extends org.globsframework.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
+        private final MethodVisitor methodVisitor;
+        private final int id;
+
+        public GenerateSetNullVisitor(MethodVisitor methodVisitor, int id) {
+            this.methodVisitor = methodVisitor;
+            this.id = id;
+        }
+
+        public void visitInteger(IntegerField field) throws Exception {
+            methodVisitor.visitInsn(ICONST_0);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
+        }
+
+        public void visitDouble(DoubleField field) throws Exception {
+            methodVisitor.visitInsn(DCONST_0);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
+        }
+
+        public void visitLong(LongField field) throws Exception {
+            methodVisitor.visitInsn(LCONST_0);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
+        }
+
+        public void visitBoolean(BooleanField field) throws Exception {
+            methodVisitor.visitInsn(ICONST_0);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
+        }
+
+        public void notManaged(Field field) throws Exception {
+            methodVisitor.visitInsn(ACONST_NULL);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
+                    getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
         }
     }
 }
