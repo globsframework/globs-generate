@@ -1,6 +1,6 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.metamodel.Field;
+import org.globsframework.metamodel.fields.Field;
 import org.globsframework.metamodel.GlobType;
 import org.globsframework.metamodel.fields.FieldValueVisitor;
 import org.globsframework.model.MutableGlob;
@@ -9,7 +9,7 @@ import org.globsframework.utils.exceptions.ItemNotFound;
 
 abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
     int hashCode;
-    long set;
+    long isSet;
     long isNull;
 
     public void setNull(int index) {
@@ -25,15 +25,15 @@ abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
     }
 
     public void setSetAt(int index) {
-        set |= (1L << index);
+        isSet |= (1L << index);
     }
 
     public boolean isSetAt(int index) {
-        return (set & (1L << index)) != 0;
+        return (isSet & (1L << index)) != 0;
     }
 
     public void clearSetAt(int index) {
-        set &= ~(1L << index);
+        isSet &= ~(1L << index);
     }
 
     public boolean isSet(Field field) throws ItemNotFound {

@@ -1,6 +1,6 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.metamodel.Field;
+import org.globsframework.metamodel.fields.Field;
 import org.globsframework.metamodel.GlobType;
 import org.globsframework.metamodel.fields.*;
 import org.globsframework.model.GlobFactory;
@@ -50,7 +50,6 @@ public class AsmGlobGenerator {
 
     }
 
-
     private static int getIndex(int pos) {
         return pos - 32 * (int) (pos / 32);
     }
@@ -90,12 +89,12 @@ public class AsmGlobGenerator {
         }
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doSet",
-                    "(Lorg/globsframework/metamodel/Field;Ljava/lang/Object;)Lorg/globsframework/model/MutableGlob;", null, null);
+                    "(Lorg/globsframework/metamodel/fields/Field;Ljava/lang/Object;)Lorg/globsframework/model/MutableGlob;", null, null);
             methodVisitor.visitCode();
             Label labelReturn = new Label();
             if (fields.length != 0) {
                 methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
+                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/Field", "getIndex", "()I", true);
                 methodVisitor.visitVarInsn(ISTORE, 3);
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 3);
@@ -107,7 +106,7 @@ public class AsmGlobGenerator {
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitVarInsn(ILOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,  "forceNull", "(Lorg/globsframework/metamodel/Field;I)V", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,  "forceNull", "(Lorg/globsframework/metamodel/fields/Field;I)V", false);
                 methodVisitor.visitJumpInsn(GOTO, labelReturn);
 
                 methodVisitor.visitLabel(label0);
@@ -139,7 +138,7 @@ public class AsmGlobGenerator {
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                    "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+                    "throwError", "(Lorg/globsframework/metamodel/fields/Field;)V", false);
 
             if (fields.length != 0) {
                 methodVisitor.visitLabel(labelReturn);
@@ -156,7 +155,7 @@ public class AsmGlobGenerator {
         }
 
         {
-            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "forceNull", "(Lorg/globsframework/metamodel/Field;I)V", null, null);
+            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "forceNull", "(Lorg/globsframework/metamodel/fields/Field;I)V", null, null);
             methodVisitor.visitCode();
             Label returnLabel = new Label();
             if (fields.length != 0) {
@@ -183,7 +182,7 @@ public class AsmGlobGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/fields/Field;)V", false);
 
 
             if (fields.length != 0) {
@@ -203,12 +202,12 @@ public class AsmGlobGenerator {
             methodVisitor.visitEnd();
         }
         {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doGet", "(Lorg/globsframework/metamodel/Field;)Ljava/lang/Object;", null, null);
+            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doGet", "(Lorg/globsframework/metamodel/fields/Field;)Ljava/lang/Object;", null, null);
             methodVisitor.visitCode();
             Label returnLabel = new Label();
             if (fields.length != 0) {
                 methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/Field", "getIndex", "()I", true);
+                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/metamodel/fields/Field", "getIndex", "()I", true);
 
                 methodVisitor.visitVarInsn(ISTORE, 2);
                 methodVisitor.visitVarInsn(ALOAD, 0);
@@ -249,7 +248,7 @@ public class AsmGlobGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/Field;)V", false);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "org/globsframework/model/generated/GeneratedGlob_" + id, "throwError", "(Lorg/globsframework/metamodel/fields/Field;)V", false);
             methodVisitor.visitInsn(ACONST_NULL);
             if (fields.length != 0) {
                 methodVisitor.visitLabel(returnLabel);
@@ -371,468 +370,226 @@ public class AsmGlobGenerator {
 
         public void visitInteger(IntegerField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitInteger";
-                    break;
-                case fieldType:
-                    name = "IntegerField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/Integer";
-                    break;
-                case outputType:
-                    name = "Ljava/lang/Integer;";
-                    break;
-                case nativeType:
-                    name = "I";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetIntAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetIntAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitInteger";
+                case fieldType -> "IntegerField";
+                case outputTypeSimple -> "java/lang/Integer";
+                case outputType -> "Ljava/lang/Integer;";
+                case nativeType -> "I";
+                case getAccessor -> "AbstractGlobGetIntAccessor";
+                case setAccessor -> "AbstractGlobSetIntAccessor";
+            };
         }
 
         public void visitIntegerArray(IntegerArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitIntegerArray";
-                    break;
-                case fieldType:
-                    name = "IntegerArrayField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[I";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetIntArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetIntArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitIntegerArray";
+                case fieldType -> "IntegerArrayField";
+                case outputTypeSimple, nativeType, outputType -> "[I";
+                case getAccessor -> "AbstractGlobGetIntArrayAccessor";
+                case setAccessor -> "AbstractGlobSetIntArrayAccessor";
+            };
         }
 
         public void visitDouble(DoubleField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitDouble";
-                    break;
-                case fieldType:
-                    name = "DoubleField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/Double";
-                    break;
-                case outputType:
-                    name = "Ljava/lang/Double;";
-                    break;
-                case nativeType:
-                    name = "D";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetDoubleAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetDoubleAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitDouble";
+                case fieldType -> "DoubleField";
+                case outputTypeSimple -> "java/lang/Double";
+                case outputType -> "Ljava/lang/Double;";
+                case nativeType -> "D";
+                case getAccessor -> "AbstractGlobGetDoubleAccessor";
+                case setAccessor -> "AbstractGlobSetDoubleAccessor";
+            };
         }
 
         public void visitBoolean(BooleanField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBoolean";
-                    break;
-                case fieldType:
-                    name = "BooleanField";
-                    break;
-                case outputType:
-                    name = "Ljava/lang/Boolean;";
-                    break;
-                case nativeType:
-                    name = "Z";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/Boolean";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBooleanAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBooleanAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitBoolean";
+                case fieldType -> "BooleanField";
+                case outputType -> "Ljava/lang/Boolean;";
+                case nativeType -> "Z";
+                case outputTypeSimple -> "java/lang/Boolean";
+                case getAccessor -> "AbstractGlobGetBooleanAccessor";
+                case setAccessor -> "AbstractGlobSetBooleanAccessor";
+            };
         }
 
 
         public void visitDoubleArray(DoubleArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitDoubleArray";
-                    break;
-                case fieldType:
-                    name = "DoubleArrayField";
-                    break;
-                case outputTypeSimple:
-                case outputType:
-                case nativeType:
-                    name = "[D";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetDoubleArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetDoubleArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitDoubleArray";
+                case fieldType -> "DoubleArrayField";
+                case outputTypeSimple, outputType, nativeType -> "[D";
+                case getAccessor -> "AbstractGlobGetDoubleArrayAccessor";
+                case setAccessor -> "AbstractGlobSetDoubleArrayAccessor";
+            };
         }
 
         public void visitBigDecimal(BigDecimalField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBigDecimal";
-                    break;
-                case fieldType:
-                    name = "BigDecimalField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/math/BigDecimal";
-                    break;
-                case outputType:
-                case nativeType:
-                    name = "Ljava/math/BigDecimal;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBigDecimalArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBigDecimalArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitBigDecimal";
+                case fieldType -> "BigDecimalField";
+                case outputTypeSimple -> "java/math/BigDecimal";
+                case outputType, nativeType -> "Ljava/math/BigDecimal;";
+                case getAccessor -> "AbstractGlobGetBigDecimalArrayAccessor";
+                case setAccessor -> "AbstractGlobSetBigDecimalArrayAccessor";
+            };
         }
 
         public void visitBigDecimalArray(BigDecimalArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBigDecimalArray";
-                    break;
-                case fieldType:
-                    name = "BigDecimalArrayField";
-                    break;
-                case outputTypeSimple:
-                case outputType:
-                case nativeType:
-                    name = "[Ljava/math/BigDecimal;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBigDecimalArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBigDecimalArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitBigDecimalArray";
+                case fieldType -> "BigDecimalArrayField";
+                case outputTypeSimple, outputType, nativeType -> "[Ljava/math/BigDecimal;";
+                case getAccessor -> "AbstractGlobGetBigDecimalArrayAccessor";
+                case setAccessor -> "AbstractGlobSetBigDecimalArrayAccessor";
+            };
         }
 
         public void visitString(StringField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitString";
-                    break;
-                case fieldType:
-                    name = "StringField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/String";
-                    break;
-                case outputType:
-                case nativeType:
-                    name = "Ljava/lang/String;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetStringAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetStringAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitString";
+                case fieldType -> "StringField";
+                case outputTypeSimple -> "java/lang/String";
+                case outputType, nativeType -> "Ljava/lang/String;";
+                case getAccessor -> "AbstractGlobGetStringAccessor";
+                case setAccessor -> "AbstractGlobSetStringAccessor";
+            };
         }
 
         public void visitStringArray(StringArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitStringArray";
-                    break;
-                case fieldType:
-                    name = "StringArrayField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[Ljava/lang/String;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetStringArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetStringArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitStringArray";
+                case fieldType -> "StringArrayField";
+                case outputTypeSimple, nativeType, outputType -> "[Ljava/lang/String;";
+                case getAccessor -> "AbstractGlobGetStringArrayAccessor";
+                case setAccessor -> "AbstractGlobSetStringArrayAccessor";
+            };
         }
 
         public void visitBooleanArray(BooleanArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBooleanArray";
-                    break;
-                case fieldType:
-                    name = "BooleanArrayField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[Z";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBooleanArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBooleanArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitBooleanArray";
+                case fieldType -> "BooleanArrayField";
+                case outputTypeSimple, nativeType, outputType -> "[Z";
+                case getAccessor -> "AbstractGlobGetBooleanArrayAccessor";
+                case setAccessor -> "AbstractGlobSetBooleanArrayAccessor";
+            };
         }
 
         public void visitLong(LongField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitLong";
-                    break;
-                case fieldType:
-                    name = "LongField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/lang/Long";
-                    break;
-                case outputType:
-                    name = "Ljava/lang/Long;";
-                    break;
-                case nativeType:
-                    name = "J";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetLongAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetLongAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitLong";
+                case fieldType -> "LongField";
+                case outputTypeSimple -> "java/lang/Long";
+                case outputType -> "Ljava/lang/Long;";
+                case nativeType -> "J";
+                case getAccessor -> "AbstractGlobGetLongAccessor";
+                case setAccessor -> "AbstractGlobSetLongAccessor";
+            };
         }
 
         public void visitLongArray(LongArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitLongArray";
-                    break;
-                case fieldType:
-                    name = "LongArrayField";
-                    break;
-                case outputTypeSimple:
-                case outputType:
-                case nativeType:
-                    name = "[J";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetLongArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetLongArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitLongArray";
+                case fieldType -> "LongArrayField";
+                case outputTypeSimple, outputType, nativeType -> "[J";
+                case getAccessor -> "AbstractGlobGetLongArrayAccessor";
+                case setAccessor -> "AbstractGlobSetLongArrayAccessor";
+            };
         }
 
         public void visitDate(DateField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitDate";
-                    break;
-                case fieldType:
-                    name = "DateField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/time/LocalDate";
-                    break;
-                case nativeType:
-                case outputType:
-                    name = "Ljava/time/LocalDate;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetDateAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetDateAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitDate";
+                case fieldType -> "DateField";
+                case outputTypeSimple -> "java/time/LocalDate";
+                case nativeType, outputType -> "Ljava/time/LocalDate;";
+                case getAccessor -> "AbstractGlobGetDateAccessor";
+                case setAccessor -> "AbstractGlobSetDateAccessor";
+            };
         }
 
         public void visitDateTime(DateTimeField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitDateTime";
-                    break;
-                case fieldType:
-                    name = "DateTimeField";
-                    break;
-                case outputTypeSimple:
-                    name = "java/time/ZonedDateTime";
-                    break;
-                case nativeType:
-                case outputType:
-                    name = "Ljava/time/ZonedDateTime;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetDateTimeAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetDateTimeAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitDateTime";
+                case fieldType -> "DateTimeField";
+                case outputTypeSimple -> "java/time/ZonedDateTime";
+                case nativeType, outputType -> "Ljava/time/ZonedDateTime;";
+                case getAccessor -> "AbstractGlobGetDateTimeAccessor";
+                case setAccessor -> "AbstractGlobSetDateTimeAccessor";
+            };
         }
 
         public void visitBlob(BlobField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitBlob";
-                    break;
-                case fieldType:
-                    name = "BlobField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[B";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetBytesAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetBytesAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitBlob";
+                case fieldType -> "BlobField";
+                case outputTypeSimple, nativeType, outputType -> "[B";
+                case getAccessor -> "AbstractGlobGetBytesAccessor";
+                case setAccessor -> "AbstractGlobSetBytesAccessor";
+            };
         }
 
-        public void visitGlob(GlobField field) throws Exception {
+        public void visitGlob(GlobField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitGlob";
-                    break;
-                case fieldType:
-                    name = "GlobField";
-                    break;
-                case outputTypeSimple:
-                    name = "org/globsframework/model/Glob";
-                    break;
-                case nativeType:
-                case outputType:
-                    name = "Lorg/globsframework/model/Glob;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetGlobAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetGlobAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitGlob";
+                case fieldType -> "GlobField";
+                case outputTypeSimple -> "org/globsframework/model/Glob";
+                case nativeType, outputType -> "Lorg/globsframework/model/Glob;";
+                case getAccessor -> "AbstractGlobGetGlobAccessor";
+                case setAccessor -> "AbstractGlobSetGlobAccessor";
+            };
         }
 
-        public void visitGlobArray(GlobArrayField field) throws Exception {
+        public void visitGlobArray(GlobArrayField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitGlobArray";
-                    break;
-                case fieldType:
-                    name = "GlobArrayField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[Lorg/globsframework/model/Glob;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetGlobArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetGlobArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitGlobArray";
+                case fieldType -> "GlobArrayField";
+                case outputTypeSimple, nativeType, outputType -> "[Lorg/globsframework/model/Glob;";
+                case getAccessor -> "AbstractGlobGetGlobArrayAccessor";
+                case setAccessor -> "AbstractGlobSetGlobArrayAccessor";
+            };
         }
 
-        public void visitUnionGlob(GlobUnionField field) throws Exception {
+        public void visitUnionGlob(GlobUnionField field) {
             isArray = false;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitUnionGlob";
-                    break;
-                case fieldType:
-                    name = "GlobUnionField";
-                    break;
-                case outputTypeSimple:
-                    name = "org/globsframework/model/Glob";
-                    break;
-                case nativeType:
-                case outputType:
-                    name = "Lorg/globsframework/model/Glob;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetGlobUnionAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetGlobUnionAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitUnionGlob";
+                case fieldType -> "GlobUnionField";
+                case outputTypeSimple -> "org/globsframework/model/Glob";
+                case nativeType, outputType -> "Lorg/globsframework/model/Glob;";
+                case getAccessor -> "AbstractGlobGetGlobUnionAccessor";
+                case setAccessor -> "AbstractGlobSetGlobUnionAccessor";
+            };
         }
 
-        public void visitUnionGlobArray(GlobArrayUnionField field) throws Exception {
+        public void visitUnionGlobArray(GlobArrayUnionField field) {
             isArray = true;
-            switch (characteristic) {
-                case visitor:
-                    name = "visitUnionGlobArray";
-                    break;
-                case fieldType:
-                    name = "GlobArrayUnionField";
-                    break;
-                case outputTypeSimple:
-                case nativeType:
-                case outputType:
-                    name = "[Lorg/globsframework/model/Glob;";
-                    break;
-                case getAccessor:
-                    name = "AbstractGlobGetGlobUnionArrayAccessor";
-                    break;
-                case setAccessor:
-                    name = "AbstractGlobSetGlobUnionArrayAccessor";
-                    break;
-            }
+            name = switch (characteristic) {
+                case visitor -> "visitUnionGlobArray";
+                case fieldType -> "GlobArrayUnionField";
+                case outputTypeSimple, nativeType, outputType -> "[Lorg/globsframework/model/Glob;";
+                case getAccessor -> "AbstractGlobGetGlobUnionArrayAccessor";
+                case setAccessor -> "AbstractGlobSetGlobUnionArrayAccessor";
+            };
         }
     }
 
@@ -847,31 +604,31 @@ public class AsmGlobGenerator {
             this.visitor = visitor;
         }
 
-        public void visitInteger(IntegerField field) throws Exception {
+        public void visitInteger(IntegerField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Integer");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
         }
 
-        public void visitLong(LongField field) throws Exception {
+        public void visitLong(LongField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Long");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
         }
 
-        public void visitDouble(DoubleField field) throws Exception {
+        public void visitDouble(DoubleField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Double");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
         }
 
-        public void visitBoolean(BooleanField field) throws Exception {
+        public void visitBoolean(BooleanField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Boolean");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
         }
 
-        public void notManaged(Field field) throws Exception {
+        public void notManaged(Field field) {
             methodVisitor.visitTypeInsn(CHECKCAST, field.safeVisit(visitor.withSimpleUserType()).name);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeVisit(visitor.withUserType()).name);
         }
@@ -886,27 +643,27 @@ public class AsmGlobGenerator {
             this.id = id;
         }
 
-        public void visitInteger(IntegerField field) throws Exception {
+        public void visitInteger(IntegerField field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
         }
 
-        public void visitDouble(DoubleField field) throws Exception {
+        public void visitDouble(DoubleField field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
         }
 
-        public void visitLong(LongField field) throws Exception {
+        public void visitLong(LongField field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
         }
 
-        public void visitBoolean(BooleanField field) throws Exception {
+        public void visitBoolean(BooleanField field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
         }
 
-        public void notManaged(Field field) throws Exception {
+        public void notManaged(Field field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
                     getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
         }
@@ -921,27 +678,27 @@ public class AsmGlobGenerator {
             this.id = id;
         }
 
-        public void visitInteger(IntegerField field) throws Exception {
+        public void visitInteger(IntegerField field) {
             methodVisitor.visitInsn(ICONST_0);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "I");
         }
 
-        public void visitDouble(DoubleField field) throws Exception {
+        public void visitDouble(DoubleField field) {
             methodVisitor.visitInsn(DCONST_0);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "D");
         }
 
-        public void visitLong(LongField field) throws Exception {
+        public void visitLong(LongField field) {
             methodVisitor.visitInsn(LCONST_0);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "J");
         }
 
-        public void visitBoolean(BooleanField field) throws Exception {
+        public void visitBoolean(BooleanField field) {
             methodVisitor.visitInsn(ICONST_0);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), "Z");
         }
 
-        public void notManaged(Field field) throws Exception {
+        public void notManaged(Field field) {
             methodVisitor.visitInsn(ACONST_NULL);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
                     getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);

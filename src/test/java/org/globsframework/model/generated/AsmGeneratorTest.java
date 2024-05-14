@@ -1,6 +1,6 @@
 package org.globsframework.model.generated;
 
-import org.globsframework.metamodel.Field;
+import org.globsframework.metamodel.fields.Field;
 import org.globsframework.metamodel.GlobType;
 import org.globsframework.metamodel.GlobTypeBuilder;
 import org.globsframework.metamodel.GlobTypeBuilderFactory;
@@ -126,7 +126,7 @@ public class AsmGeneratorTest {
         MutableGlob duplicate = instantiate.duplicate();
 
         Assert.assertTrue(instantiate.matches(duplicate));
-        Assert.assertTrue(instantiate != duplicate);
+        Assert.assertNotSame(instantiate, duplicate);
 
         instantiate.unset(d1);
         Assert.assertFalse(instantiate.isSet(d1));
