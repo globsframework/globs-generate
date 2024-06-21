@@ -78,7 +78,7 @@ abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
     public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
         for (Field field : getType().getFields()) {
             if (isSet(field)) { //  || field.isKeyField()
-                field.visit(functor, doGet(field));
+                field.accept(functor, doGet(field));
             }
         }
         return functor;

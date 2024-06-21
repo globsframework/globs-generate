@@ -73,7 +73,7 @@ public class AsmGlobGenerator {
         FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
         {
             for (Field field : fields) {
-                fieldVisitor = classWriter.visitField(ACC_PRIVATE, getFieldName(field), field.safeVisit(visitor.withWithNativeType()).name, null, null);
+                fieldVisitor = classWriter.visitField(ACC_PRIVATE, getFieldName(field), field.safeAccept(visitor.withWithNativeType()).name, null, null);
                 fieldVisitor.visitEnd();
             }
         }
@@ -128,7 +128,7 @@ public class AsmGlobGenerator {
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
                     methodVisitor.visitVarInsn(ALOAD, 2);
-                    field.safeVisit(setFieldVisitor);
+                    field.safeAccept(setFieldVisitor);
                     methodVisitor.visitJumpInsn(GOTO, labelReturn);
                 }
 
@@ -174,7 +174,7 @@ public class AsmGlobGenerator {
                     methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
-                    field.safeVisit(new GenerateSetNullVisitor(methodVisitor, id));
+                    field.safeAccept(new GenerateSetNullVisitor(methodVisitor, id));
                     methodVisitor.visitJumpInsn(GOTO, returnLabel);
                 }
                 methodVisitor.visitLabel(defaultLabel);
@@ -239,7 +239,7 @@ public class AsmGlobGenerator {
                     methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
-                    field.safeVisit(new GenerateGetVisitor(methodVisitor, id));
+                    field.safeAccept(new GenerateGetVisitor(methodVisitor, id));
                     methodVisitor.visitJumpInsn(GOTO, returnLabel);
                 }
 
@@ -629,8 +629,8 @@ public class AsmGlobGenerator {
         }
 
         public void notManaged(Field field) {
-            methodVisitor.visitTypeInsn(CHECKCAST, field.safeVisit(visitor.withSimpleUserType()).name);
-            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeVisit(visitor.withUserType()).name);
+            methodVisitor.visitTypeInsn(CHECKCAST, field.safeAccept(visitor.withSimpleUserType()).name);
+            methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id, getFieldName(field), field.safeAccept(visitor.withUserType()).name);
         }
     }
 
@@ -665,7 +665,7 @@ public class AsmGlobGenerator {
 
         public void notManaged(Field field) {
             methodVisitor.visitFieldInsn(GETFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                    getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
+                    getFieldName(field), field.safeAccept(new FieldVisitorToVisitName().withUserType()).name);
         }
     }
 
@@ -701,7 +701,7 @@ public class AsmGlobGenerator {
         public void notManaged(Field field) {
             methodVisitor.visitInsn(ACONST_NULL);
             methodVisitor.visitFieldInsn(PUTFIELD, "org/globsframework/model/generated/GeneratedGlob_" + id,
-                    getFieldName(field), field.safeVisit(new FieldVisitorToVisitName().withUserType()).name);
+                    getFieldName(field), field.safeAccept(new FieldVisitorToVisitName().withUserType()).name);
         }
     }
 }
