@@ -1,8 +1,8 @@
 package org.globsframework.model.generated;
 
-import org.globsframework.metamodel.GlobType;
-import org.globsframework.metamodel.impl.DefaultGlobFactory;
-import org.globsframework.model.MutableGlob;
+import org.globsframework.core.metamodel.GlobType;
+import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.model.generator.AsmGlobGenerator;
 
 public class GeneratedGlobFactory extends DefaultGlobFactory {

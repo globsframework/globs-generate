@@ -1,9 +1,9 @@
 package org.globsframework.model.generated;
 
-import org.globsframework.metamodel.fields.Field;
-import org.globsframework.metamodel.GlobType;
-import org.globsframework.model.Glob;
-import org.globsframework.model.MutableGlob;
+import org.globsframework.core.metamodel.GlobType;
+import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.MutableGlob;
 import org.globsframework.model.generator.AbstractGeneratedGlob32;
 
 /*

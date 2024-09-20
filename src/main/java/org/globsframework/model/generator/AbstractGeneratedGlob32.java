@@ -1,12 +1,12 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.metamodel.fields.Field;
-import org.globsframework.metamodel.GlobType;
-import org.globsframework.metamodel.fields.FieldValueVisitor;
-import org.globsframework.model.FieldValues;
-import org.globsframework.model.MutableGlob;
-import org.globsframework.model.impl.AbstractMutableGlob;
-import org.globsframework.utils.exceptions.ItemNotFound;
+import org.globsframework.core.metamodel.GlobType;
+import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.metamodel.fields.FieldValueVisitor;
+import org.globsframework.core.model.FieldValues;
+import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.impl.AbstractMutableGlob;
+import org.globsframework.core.utils.exceptions.ItemNotFound;
 
 abstract public class AbstractGeneratedGlob32 extends AbstractMutableGlob {
     int hashCode;

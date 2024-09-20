@@ -1,19 +1,18 @@
 package org.globsframework.model.generated;
 
-import org.globsframework.metamodel.fields.Field;
-import org.globsframework.metamodel.GlobType;
-import org.globsframework.metamodel.GlobTypeBuilder;
-import org.globsframework.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.metamodel.annotations.AutoIncrementAnnotationType;
-import org.globsframework.metamodel.annotations.DefaultBooleanAnnotationType;
-import org.globsframework.metamodel.fields.*;
-import org.globsframework.model.MutableGlob;
-import org.globsframework.model.globaccessor.get.GlobGetDoubleAccessor;
-import org.globsframework.model.globaccessor.get.GlobGetIntAccessor;
-import org.globsframework.model.globaccessor.get.GlobGetLongAccessor;
-import org.globsframework.model.globaccessor.set.GlobSetDoubleAccessor;
-import org.globsframework.model.globaccessor.set.GlobSetIntAccessor;
-import org.globsframework.model.globaccessor.set.GlobSetLongAccessor;
+import org.globsframework.core.metamodel.GlobType;
+import org.globsframework.core.metamodel.GlobTypeBuilder;
+import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
+import org.globsframework.core.metamodel.annotations.AutoIncrementAnnotationType;
+import org.globsframework.core.metamodel.annotations.DefaultBooleanAnnotationType;
+import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.get.GlobGetDoubleAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetLongAccessor;
+import org.globsframework.core.model.globaccessor.set.GlobSetDoubleAccessor;
+import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
+import org.globsframework.core.model.globaccessor.set.GlobSetLongAccessor;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -67,7 +66,7 @@ public class AsmGeneratorTest {
         Assert.assertTrue(instantiate.isSet(l1));
         Assert.assertFalse(instantiate.isSet(la1));
 
-        instantiate.set(la1, new long[]{2,3});
+        instantiate.set(la1, new long[]{2, 3});
         Assert.assertTrue(instantiate.isSet(la1));
         Assert.assertTrue(instantiate.isSet(l1));
         Assert.assertTrue(instantiate.isSet(i1));
@@ -101,7 +100,7 @@ public class AsmGeneratorTest {
         Assert.assertEquals(321L, lGet.get(instantiate).longValue());
 
         instantiate.safeApply((field, value) -> System.out.println(field.getName() + ":" + value));
-        instantiate.safeAccept(new FieldValueVisitor.AbstractFieldValueVisitor(){
+        instantiate.safeAccept(new FieldValueVisitor.AbstractFieldValueVisitor() {
             public void notManaged(Field field, Object value) throws Exception {
                 System.out.println(field.getName() + " : " + value);
             }
@@ -165,7 +164,7 @@ public class AsmGeneratorTest {
         }
         for (Field field : allField) {
             Assert.assertTrue(instantiate.isNull(field));
-            if (field.getName().contains("int")){
+            if (field.getName().contains("int")) {
                 instantiate.setValue(field, 0);
             } else if (field.getName().contains("double")) {
                 instantiate.setValue(field, 0.0);
