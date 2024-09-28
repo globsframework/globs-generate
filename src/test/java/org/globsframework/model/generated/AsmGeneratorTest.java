@@ -3,8 +3,8 @@ package org.globsframework.model.generated;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.annotations.AutoIncrementAnnotationType;
-import org.globsframework.core.metamodel.annotations.DefaultBooleanAnnotationType;
+import org.globsframework.core.metamodel.annotations.AutoIncrement;
+import org.globsframework.core.metamodel.annotations.DefaultBoolean;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.globaccessor.get.GlobGetDoubleAccessor;
@@ -140,10 +140,10 @@ public class AsmGeneratorTest {
     @Test
     public void testAnnotations() {
         System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
-        DefaultBooleanAnnotationType.TYPE.instantiate().set(DefaultBooleanAnnotationType.DEFAULT_VALUE, true);
-        final MutableGlob instantiate = AutoIncrementAnnotationType.TYPE.instantiate();
-        Assert.assertEquals(instantiate.getKey(), AutoIncrementAnnotationType.KEY);
-        Assert.assertSame(instantiate.getType(), AutoIncrementAnnotationType.TYPE);
+        DefaultBoolean.TYPE.instantiate().set(DefaultBoolean.VALUE, true);
+        final MutableGlob instantiate = AutoIncrement.TYPE.instantiate();
+        Assert.assertEquals(instantiate.getKey(), AutoIncrement.KEY);
+        Assert.assertSame(instantiate.getType(), AutoIncrement.TYPE);
     }
 
     @Test
