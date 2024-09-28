@@ -550,8 +550,8 @@ public class AsmGlobGenerator {
             name = switch (characteristic) {
                 case visitor -> "visitGlob";
                 case fieldType -> "GlobField";
-                case outputTypeSimple -> "org/globsframework/model/Glob";
-                case nativeType, outputType -> "Lorg/globsframework/model/Glob;";
+                case outputTypeSimple -> "org/globsframework/core/model/Glob";
+                case nativeType, outputType -> "Lorg/globsframework/core/model/Glob;";
                 case getAccessor -> "AbstractGlobGetGlobAccessor";
                 case setAccessor -> "AbstractGlobSetGlobAccessor";
             };
