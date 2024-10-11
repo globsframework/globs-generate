@@ -1,4 +1,4 @@
-package org.globsframework.model.generator;
+package org.globsframework.model.generator.primitive;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.impl.DefaultGlobFactory;

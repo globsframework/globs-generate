@@ -1,4 +1,4 @@
-package org.globsframework.model.generated;
+package org.globsframework.model.generated.primitive;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
@@ -24,7 +24,7 @@ public class AsmGeneratorTest {
     @Test
     public void globGen() {
 
-        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
+        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService");
         GlobTypeBuilder globTypeBuilder = GlobTypeBuilderFactory.create("GlobType1");
 
         IntegerField i1 = globTypeBuilder.declareIntegerField("int");
@@ -139,7 +139,7 @@ public class AsmGeneratorTest {
 
     @Test
     public void testAnnotations() {
-        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
+        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.object.GeneratorGlobFactoryService");
         DefaultBoolean.TYPE.instantiate().set(DefaultBoolean.VALUE, true);
         final MutableGlob instantiate = AutoIncrement.TYPE.instantiate();
         Assert.assertEquals(instantiate.getKey(), AutoIncrement.KEY);
@@ -148,7 +148,7 @@ public class AsmGeneratorTest {
 
     @Test
     public void GlobWithMoreThan32Field() {
-        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.GeneratorGlobFactoryService");
+        System.setProperty("org.globsframework.builder", "org.globsframework.model.generator.object.GeneratorGlobFactoryService");
         GlobTypeBuilder globTypeBuilder = GlobTypeBuilderFactory.create("GlobType1");
 
         List<Field> allField = new ArrayList<>();

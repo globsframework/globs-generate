@@ -1,40 +1,22 @@
-package org.globsframework.model.generator;
+package org.globsframework.model.generator.object;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.FieldValueVisitor;
-import org.globsframework.core.model.FieldValues;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.impl.AbstractMutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 
-abstract public class AbstractGeneratedGlob32 extends AbstractMutableGlob {
+abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
     int hashCode;
-    int isSet;
-    int isNull;
-
-    public void setNull(int index) {
-        isNull |= (1 << index);
-    }
-
-    public void setNotNull(int index) {
-        isNull &= ~(1 << index);
-    }
-
-    public boolean isNull(int index) {
-        return (isNull & (1L << index)) != 0;
-    }
-
-    public void setSetAt(int index) {
-        isSet |= (1 << index);
-    }
+    long isSet;
 
     public boolean isSetAt(int index) {
         return (isSet & (1L << index)) != 0;
     }
 
     public void clearSetAt(int index) {
-        isSet &= ~(1 << index);
+        isSet &= ~(1L << index);
     }
 
     public boolean isSet(Field field) throws ItemNotFound {
@@ -42,6 +24,7 @@ abstract public class AbstractGeneratedGlob32 extends AbstractMutableGlob {
     }
 
     public MutableGlob unset(Field field) {
+        doSet(field, null);
         clearSetAt(field.getIndex());
         return this;
     }
@@ -66,24 +49,24 @@ abstract public class AbstractGeneratedGlob32 extends AbstractMutableGlob {
         return hashCode != 0;
     }
 
-    public <T extends FieldValues.Functor>
-    T apply(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSet(field)) {
-                functor.process(field, doGet(field));
-            }
-        }
-        return functor;
-    }
+//    public <T extends Functor>
+//    T apply(T functor) throws Exception {
+//        for (Field field : getType().getFields()) {
+//            if (isSet(field)) {
+//                functor.process(field, doGet(field));
+//            }
+//        }
+//        return functor;
+//    }
 
-    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSet(field)) { //  || field.isKeyField()
-                field.accept(functor, doGet(field));
-            }
-        }
-        return functor;
-    }
+//    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+//        for (Field field : getType().getFields()) {
+//            if (isSet(field)) { //  || field.isKeyField()
+//                field.accept(functor, doGet(field));
+//            }
+//        }
+//        return functor;
+//    }
 
     public static void throwError(GlobType globType, Field field) {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + globType.describe());

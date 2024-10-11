@@ -1,10 +1,10 @@
-package org.globsframework.model.generated;
+package org.globsframework.model.generated.primitive;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.model.generator.AbstractGeneratedGlob32;
+import org.globsframework.model.generator.primitive.AbstractGeneratedGlob32;
 
 /*
 org.objectweb.asm.util.ASMifier .../globs-generate/target/test-classes/org/globsframework/model/generated/GeneratedGlob.class
@@ -24,13 +24,31 @@ public class GeneratedGlob extends AbstractGeneratedGlob32 {
     private boolean b;
 
 
+//    public <T extends FieldValues.Functor>
+//    T apply(T functor) throws Exception {
+//        if (isSetAt(0)) {
+//            functor.process(GeneratedGlobFactory.f1, isNull(0) ? null : i1);
+//        }
+//        if (isSetAt(1)) {
+//            functor.process(GeneratedGlobFactory.f2, isNull(0) ? null : ia2);
+//        }
+//        return functor;
+//    }
+//
+//    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+//        for (Field field : getType().getFields()) {
+//            if (isSet(field)) { //  || field.isKeyField()
+//                field.accept(functor, doGet(field));
+//            }
+//        }
+//        return functor;
+//    }
+
+
     public MutableGlob doSet(Field field, Object value) {
-//        throwError(field);
-//        return this;
         final int index = field.getIndex();
         setSetAt(index);
         if (value == null) {
-//            setNull(index);
             forceNull(field, index);
         } else {
             setNotNull(index);
@@ -70,39 +88,38 @@ public class GeneratedGlob extends AbstractGeneratedGlob32 {
     }
 
     private void forceNull(Field field, int index) {
-        throwError(field);
-//        setNull(index);
-//        switch (index) {
-//            case 1:
-//                i1 = 0;
-//                break;
-//            case 2:
-//                i2 = null;
-//                break;
-//            case 3:
-//                i3 = 0.;
-//                break;
-//            case 4:
-//                ia1 = null;
-//                break;
-//            case 5:
-//                ia2 = null;
-//                break;
-//            case 6:
-//                name = null;
-//            case 7:
-//                gl = null;
-//            case 8:
-//                gla = null;
-//            case 9:
-//                l1 = 0;
-//            case 10:
-//                la1 = null;
-//            case 11:
-//                b = false;
-//            default:
-//                throwError(field);
-//        }
+        setNull(index);
+        switch (index) {
+            case 1:
+                i1 = 0;
+                break;
+            case 2:
+                i2 = null;
+                break;
+            case 3:
+                i3 = 0.;
+                break;
+            case 4:
+                ia1 = null;
+                break;
+            case 5:
+                ia2 = null;
+                break;
+            case 6:
+                name = null;
+            case 7:
+                gl = null;
+            case 8:
+                gla = null;
+            case 9:
+                l1 = 0;
+            case 10:
+                la1 = null;
+            case 11:
+                b = false;
+            default:
+                throwError(field);
+        }
     }
 
     public GlobType getType() {
@@ -110,8 +127,6 @@ public class GeneratedGlob extends AbstractGeneratedGlob32 {
     }
 
     public Object doGet(Field field) {
-//        throwError(field);
-//        return null;
         final int index = field.getIndex();
         if (isNull(index) || !isSetAt(index)) {
             return null;
