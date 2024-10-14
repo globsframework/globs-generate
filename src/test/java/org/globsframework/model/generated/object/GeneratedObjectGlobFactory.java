@@ -1,12 +1,11 @@
 package org.globsframework.model.generated.object;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.FieldVisitor;
 import org.globsframework.core.metamodel.fields.IntegerArrayField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.model.generator.primitive.AsmGlobGenerator;
+import org.globsframework.model.generator.primitive.AsmGlobPrimitiveGenerator;
 
 public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
     public static final GlobType TYPE;
@@ -16,7 +15,7 @@ public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
     public static final IntegerArrayField f2;
 
     static {
-        TYPE = AsmGlobGenerator.TYPE;
+        TYPE = AsmGlobPrimitiveGenerator.TYPE;
         f1 = (IntegerField) TYPE.findField("i1");
         f2 = (IntegerArrayField) TYPE.findField("i2");
     }

@@ -7,10 +7,10 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.model.generator.primitive.AbstractGeneratedGlob32;
 
 /*
-org.objectweb.asm.util.ASMifier .../globs-generate/target/test-classes/org/globsframework/model/generated/GeneratedGlob.class
+org.objectweb.asm.util.ASMifier .../globs-generate/target/test-classes/org/globsframework/model/generated/primitive/GeneratedGlobPrimitiveGlob.class
  */
 
-public class GeneratedGlob extends AbstractGeneratedGlob32 {
+public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
     private int i1;
     private int[] ia1;
     private String i2;
@@ -123,7 +123,7 @@ public class GeneratedGlob extends AbstractGeneratedGlob32 {
     }
 
     public GlobType getType() {
-        return GeneratedGlobFactory.TYPE;
+        return GeneratedGlobPrimitiveFactory.TYPE;
     }
 
     public Object doGet(Field field) {

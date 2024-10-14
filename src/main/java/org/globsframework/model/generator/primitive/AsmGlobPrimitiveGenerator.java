@@ -12,8 +12,7 @@ import java.util.stream.IntStream;
 
 import static org.objectweb.asm.Opcodes.*;
 
-
-public class AsmGlobGenerator {
+public class AsmGlobPrimitiveGenerator {
     public static final Pattern COMPILE = Pattern.compile("[^\\w]");
     public static GlobType TYPE;
     static AtomicInteger ID = new AtomicInteger();
@@ -21,7 +20,7 @@ public class AsmGlobGenerator {
     synchronized public static GlobFactory create(GlobType globType) {
         try {
             int id = ID.incrementAndGet();
-            ClassLoader bytesClassloader = new ClassLoader(AsmGlobGenerator.class.getClassLoader()) {
+            ClassLoader bytesClassloader = new ClassLoader(AsmGlobPrimitiveGenerator.class.getClassLoader()) {
                 protected Class<?> findClass(String name) throws ClassNotFoundException {
                     if (name.replace('.', '/').equalsIgnoreCase(getGlobFactoryName(id))) {
                         byte[] b = generateFactory(globType, id);
@@ -69,7 +68,6 @@ public class AsmGlobGenerator {
 
         classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, GenerateSetNullVisitor.getGlobName(id), null,
                 "org/globsframework/model/generator/primitive/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), null);
-
 
         Field[] fields = globType.getFields();
 
@@ -306,7 +304,7 @@ public class AsmGlobGenerator {
         {
             methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generator/primitive/AsmGlobGenerator", "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
+            methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator", "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
             methodVisitor.visitFieldInsn(PUTSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(1, 0);
