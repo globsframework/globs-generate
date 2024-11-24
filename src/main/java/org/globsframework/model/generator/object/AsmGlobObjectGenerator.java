@@ -58,10 +58,10 @@ public class AsmGlobObjectGenerator {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
         MethodVisitor methodVisitor;
-        AnnotationVisitor annotationVisitor0;
 
+        boolean is32Bit = globType.getFieldCount() <= 32;
         classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, getGeneratedGlobName(id), null,
-                "org/globsframework/model/generator/object/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), null);
+                "org/globsframework/model/generator/object/AbstractGeneratedGlob" + (is32Bit ? "32" : "64"), null);
 
 
         Field[] fields = globType.getFields();
@@ -77,22 +77,29 @@ public class AsmGlobObjectGenerator {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/object/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), "<init>", "()V", false);
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/object/AbstractGeneratedGlob" + (is32Bit ? "32" : "64"), "<init>", "()V", false);
 
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
         }
         {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "accept", "(Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;", "<T::Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;>(TT;)TT;", new String[] { "java/lang/Exception" });
+            methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "accept", "(Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;", "<T::Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;>(TT;)TT;", new String[] { "java/lang/Exception" });
             methodVisitor.visitCode();
 
             for (int i = 0; i < fields.length; i++) {
                 Label label3 = new Label();
                 Field field = fields[i];
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitIntInsn(BIPUSH, field.getIndex());
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, getGeneratedGlobName(id), "isSetAt", "(I)Z", false);
+                if (is32Bit) {
+                    methodVisitor.visitFieldInsn(GETFIELD, getGeneratedGlobName(id), "isSet", "I");
+                    methodVisitor.visitLdcInsn(1 << i);
+                    methodVisitor.visitInsn(IAND);
+                }
+                else {
+                    methodVisitor.visitIntInsn(BIPUSH, field.getIndex());
+                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, getGeneratedGlobName(id), "isSetAt", "(I)Z", false);
+                }
                 methodVisitor.visitJumpInsn(IFEQ, label3);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitFieldInsn(GETSTATIC, getGeneratedGlobFactoryName(id), getFieldName(field),
