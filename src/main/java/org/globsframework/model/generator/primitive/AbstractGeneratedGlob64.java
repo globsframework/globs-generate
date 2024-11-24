@@ -3,11 +3,12 @@ package org.globsframework.model.generator.primitive;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.FieldValueVisitor;
+import org.globsframework.core.model.Key;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.impl.AbstractMutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 
-abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
+abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
     int hashCode;
     long isSet;
     long isNull;
@@ -91,6 +92,44 @@ abstract public class AbstractGeneratedGlob64 extends AbstractMutableGlob {
 
     public void throwError(Field field) {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + getType().describe());
+    }
+
+
+    public String toString() {
+        StringBuilder buffer = new StringBuilder();
+        toString(buffer);
+        return buffer.toString();
+    }
+
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+
+        if (o == null) {
+            return false;
+        }
+
+        if (!Key.class.isAssignableFrom(o.getClass())) {
+            return false;
+        }
+
+        Key otherKey = (Key) o;
+        if (getType() != otherKey.getGlobType()) {
+            return false;
+        }
+
+        Field[] keyFields = getType().getKeyFields();
+        if (keyFields.length == 0) {
+            return true; //o instanceof Glob && reallyEquals((Glob) o);
+        }
+
+        for (Field field : keyFields) {
+            if (!field.valueEqual(getValue(field), otherKey.getValue(field))) {
+                return false;
+            }
+        }
+        return true;
     }
 
 }

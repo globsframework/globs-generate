@@ -25,7 +25,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     private Boolean b;
 
 
-    public MutableGlob doSet(Field field, Object value) {
+    final public MutableGlob doSet(Field field, Object value) {
         final int index = field.getIndex();
         setSetAt(index);
         switch (index) {
@@ -62,24 +62,24 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
         return this;
     }
 
-    public GlobType getType() {
+    final public GlobType getType() {
         return GeneratedObjectGlobFactory.TYPE;
     }
 
-    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-        if (isSetAt(0)) {
+    final public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+        if ((isSet & (1 << 0)) != 0) {
             functor.visitInteger(GeneratedObjectGlobFactory.f1, i1);
         }
-        if (isSetAt(1)) {
+        if ((isSet & (1 << 1)) != 0) {
             functor.visitIntegerArray(GeneratedObjectGlobFactory.f2, ia1);
         }
-        if (isSetAt(20)) {
+        if ((isSet & (1 << 20)) != 0) {
             functor.visitIntegerArray(GeneratedObjectGlobFactory.f2, ia1);
         }
         return functor;
     }
 
-    public <T extends Functor>
+    final public <T extends Functor>
     T apply(T functor) throws Exception {
         if (isSetAt(0)) {
             functor.process(GeneratedObjectGlobFactory.f1, i1);
@@ -94,7 +94,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     }
 
 
-    public Object doGet(Field field) {
+    final public Object doGet(Field field) {
         final int index = field.getIndex();
         if (!isSetAt(index)) {
             return null;
