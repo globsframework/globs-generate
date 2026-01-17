@@ -1,9 +1,15 @@
 package org.globsframework.model.generated.primitive;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
+import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
+import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
+import org.globsframework.core.model.globaccessor.set.impl.AbstractGlobSetIntAccessor;
+import org.globsframework.core.utils.exceptions.ItemNotFound;
 import org.globsframework.model.generator.primitive.AbstractGeneratedGlob32;
 
 /*
@@ -22,6 +28,110 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
     private Glob gl;
     private Glob[] gla;
     private boolean b;
+
+    public static GlobGetAccessor getGetAccessor(Field field) {
+        return switch (field.getIndex()) {
+            case 0 -> PrimitiveGlobGetIntAccessor_i1.INSTANCE;
+            default -> throw new IllegalStateException("Unexpected value: " + field.getIndex());
+        };
+    }
+
+    public static GlobSetAccessor getSetAccessor(Field field) {
+        return switch (field.getIndex()) {
+            case 0 -> PrimitiveGlobSetIntAccessor_i1.INSTANCE;
+            default -> throw new IllegalStateException("Unexpected value: " + field.getIndex());
+        };
+    }
+
+    @Override
+    public MutableGlob getMutable(GlobField field) throws ItemNotFound {
+        return null;
+    }
+
+    @Override
+    public MutableGlob[] getMutable(GlobArrayField field) throws ItemNotFound {
+        return new MutableGlob[0];
+    }
+
+    @Override
+    public MutableGlob getMutable(GlobUnionField field) throws ItemNotFound {
+        return null;
+    }
+
+    @Override
+    public MutableGlob[] getMutable(GlobArrayUnionField field) throws ItemNotFound {
+        return new MutableGlob[0];
+    }
+
+
+    static class PrimitiveGlobSetIntAccessor_i1 extends AbstractGlobSetIntAccessor implements GlobSetIntAccessor {
+        public static final GlobSetAccessor INSTANCE = new PrimitiveGlobSetIntAccessor_i1(GeneratedGlobPrimitiveFactory.f1);
+        final int valueSet;
+        final int valueUnSet;
+
+        public PrimitiveGlobSetIntAccessor_i1(Field field) {
+            valueSet = 1 << field.getIndex();
+            valueUnSet = ~valueSet;
+        }
+
+        @Override
+        public void set(MutableGlob glob, Integer value) {
+            final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
+            typeData.isSet |= valueSet;
+            if (value == null) {
+                typeData.isNull |= valueSet;
+                typeData.i1 = 0;
+            }
+            else {
+                typeData.isNull &= valueUnSet;
+                typeData.i1 = value;
+            }
+        }
+
+        @Override
+        public void setNative(MutableGlob glob, int value) {
+            final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
+            typeData.isSet |= valueSet;
+            typeData.isNull &= valueUnSet;
+            typeData.i1 = value;
+        }
+    }
+
+    static class PrimitiveGlobGetIntAccessor_i1 extends AbstractGlobGetNativeAccessor implements GlobGetIntAccessor {
+        static final PrimitiveGlobGetIntAccessor_i1 INSTANCE = new PrimitiveGlobGetIntAccessor_i1(GeneratedGlobPrimitiveFactory.f1);
+        private PrimitiveGlobGetIntAccessor_i1(Field field) {
+            super(field);
+        }
+
+        @Override
+        public int get(Glob glob, int defaultValueIfNull) {
+            final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
+            typeData.checkReserved();
+            return uncheckedIsNull(typeData) ? defaultValueIfNull : typeData.i1;
+        }
+
+        public int getNative(Glob glob) {
+            final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
+            typeData.checkReserved();
+            return typeData.i1;
+        }
+
+        @Override
+        public Integer get(Glob glob) {
+            final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
+            typeData.checkReserved();
+            if (uncheckedIsNull(typeData)) {
+                return null;
+            }
+            return typeData.i1;
+        }
+
+        @Override
+        public Object getValue(Glob glob) {
+            return get(glob);
+        }
+    }
+
 
 
 //    public <T extends FieldValues.Functor>
@@ -128,7 +238,7 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
 
     public Object doGet(Field field) {
         final int index = field.getIndex();
-        if (isNull(index) || !isSetAt(index)) {
+        if (isNull(index)) {// || !isSetAt(index)) {
             return null;
         }
         return switch (index) {

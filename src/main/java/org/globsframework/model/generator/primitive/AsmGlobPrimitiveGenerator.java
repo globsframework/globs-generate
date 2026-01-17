@@ -536,7 +536,7 @@ public class AsmGlobPrimitiveGenerator {
             };
         }
 
-        public void visitBlob(BlobField field) {
+        public void visitBytes(BytesField field) {
             isArray = false;
             name = switch (characteristic) {
                 case visitor -> "visitBlob";

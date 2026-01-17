@@ -1,15 +1,21 @@
 package org.globsframework.model.generator.object;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.Key;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.ReservationException;
+import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
+import org.globsframework.core.model.globaccessor.get.impl.AbstractGlobGetIntAccessor;
 import org.globsframework.core.model.impl.AbstractMutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 
 abstract public class AbstractGeneratedGlob32 implements AbstractMutableGlob {
     protected int hashCode;
     protected int isSet;
+    private int reserve = 0;
 
     final public void setSetAt(int index) {
         isSet |= (1 << index);
@@ -48,6 +54,7 @@ abstract public class AbstractGeneratedGlob32 implements AbstractMutableGlob {
         this.hashCode = hashCode;
         return hashCode;
     }
+
 
     final public boolean isHashComputed() {
         return hashCode != 0;
@@ -118,4 +125,65 @@ abstract public class AbstractGeneratedGlob32 implements AbstractMutableGlob {
         return true;
     }
 
+    @Override
+    public void checkReserved() {
+        if (reserve < 0) {
+            throw new ReservationException("Data not reserved");
+        }
+    }
+
+    @Override
+    public void reserve(int key) {
+        if (key <= 0) {
+            throw new ReservationException("Reserved key <= 0 Got " + key);
+        }
+        if (reserve > 0) {
+            throw new ReservationException("Already reserved by " + key);
+        }
+        reserve = key;
+    }
+
+    @Override
+    public boolean release(int key) {
+        if (key <= 0) {
+            throw new ReservationException("Released key <= 0 Got " + key);
+        }
+        if (reserve == -key) {
+            return false;
+        }
+        if (reserve != 0) {
+            if (reserve != key) {
+                throw new ReservationException("Can not release data : reserved by " + reserve + " != " + key);
+            }
+            reserve = -key;
+        } else {
+            throw new ReservationException("Can not release not own Glob '" + key + "'");
+        }
+        hashCode = 0;
+        isSet = 0;
+        return true;
+    }
+
+    @Override
+    public void unReserve() {
+        hashCode = 0;
+        reserve = 0;
+    }
+
+    @Override
+    public boolean isReserved() {
+        return reserve > 0;
+    }
+
+    @Override
+    public boolean isReservedBy(int key) {
+        return key > 0 && reserve == key;
+    }
+
+    @Override
+    public void checkWasReservedBy(int key) {
+        if (key <= 0 || reserve != -key) {
+            throw new ReservationException("Data was not reserved by " + reserve + " != " + key);
+        }
+    }
 }
