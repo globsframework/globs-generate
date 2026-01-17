@@ -5,11 +5,13 @@ import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.FieldValueVisitor;
 import org.globsframework.core.model.Key;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.ReservationException;
 import org.globsframework.core.model.impl.AbstractMutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 
 abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
     private int hashCode;
+    private int reserve = 0;
     private long isSet;
 
     public boolean isSetAt(int index) {
@@ -114,4 +116,66 @@ abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
         }
         return true;
     }
+    @Override
+    public void checkReserved() {
+        if (reserve < 0) {
+            throw new ReservationException("Data not reserved");
+        }
+    }
+
+    @Override
+    public void reserve(int key) {
+        if (key <= 0) {
+            throw new ReservationException("Reserved key <= 0 Got " + key);
+        }
+        if (reserve > 0) {
+            throw new ReservationException("Already reserved by " + key);
+        }
+        reserve = key;
+    }
+
+    @Override
+    public boolean release(int key) {
+        if (key <= 0) {
+            throw new ReservationException("Released key <= 0 Got " + key);
+        }
+        if (reserve == -key) {
+            return false;
+        }
+        if (reserve != 0) {
+            if (reserve != key) {
+                throw new ReservationException("Can not release data : reserved by " + reserve + " != " + key);
+            }
+            reserve = -key;
+        } else {
+            throw new ReservationException("Can not release not own Glob '" + key + "'");
+        }
+        hashCode = 0;
+        isSet = 0;
+        return true;
+    }
+
+    @Override
+    public void unReserve() {
+        hashCode = 0;
+        reserve = 0;
+    }
+
+    @Override
+    public boolean isReserved() {
+        return reserve > 0;
+    }
+
+    @Override
+    public boolean isReservedBy(int key) {
+        return key > 0 && reserve == key;
+    }
+
+    @Override
+    public void checkWasReservedBy(int key) {
+        if (key <= 0 || reserve != -key) {
+            throw new ReservationException("Data was not reserved by " + reserve + " != " + key);
+        }
+    }
+
 }

@@ -1,10 +1,12 @@
 package org.globsframework.model.generated.object;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.fields.Field;
-import org.globsframework.core.metamodel.fields.FieldValueVisitor;
+import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
+import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
+import org.globsframework.core.utils.exceptions.ItemNotFound;
 import org.globsframework.model.generator.object.AbstractGeneratedGlob32;
 
 /*
@@ -23,7 +25,6 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     private Glob gl;
     private Glob[] gla;
     private Boolean b;
-
 
     final public MutableGlob doSet(Field field, Object value) {
         final int index = field.getIndex();
@@ -51,7 +52,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
             case 8:
                 gla = (Glob[]) value;
             case 9:
-                l1 = (long) value;
+                l1 = (Long) value;
             case 10:
                 la1 = (long[]) value;
             case 11:
@@ -75,6 +76,20 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
         }
         if ((isSet & (1 << 20)) != 0) {
             functor.visitIntegerArray(GeneratedObjectGlobFactory.f2, ia1);
+        }
+        return functor;
+    }
+
+    @Override
+    public <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
+        if ((isSet & (1 << 0)) != 0) {
+            functor.visitInteger(GeneratedObjectGlobFactory.f1, i1, ctx);
+        }
+        if ((isSet & (1 << 1)) != 0) {
+            functor.visitIntegerArray(GeneratedObjectGlobFactory.f2, ia1, ctx);
+        }
+        if ((isSet & (1 << 20)) != 0) {
+            functor.visitIntegerArray(GeneratedObjectGlobFactory.f2, ia1, ctx);
         }
         return functor;
     }
@@ -118,15 +133,36 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
         };
     }
 
+    @Override
+    public MutableGlob getMutable(GlobField field) throws ItemNotFound {
+        return null;
+    }
+
+    @Override
+    public MutableGlob[] getMutable(GlobArrayField field) throws ItemNotFound {
+        return new MutableGlob[0];
+    }
+
+    @Override
+    public MutableGlob getMutable(GlobUnionField field) throws ItemNotFound {
+        return null;
+    }
+
+    @Override
+    public MutableGlob[] getMutable(GlobArrayUnionField field) throws ItemNotFound {
+        return new MutableGlob[0];
+    }
+
 //    static GlobGetAccessor getGetAccessor(Field field){
 //        if (field.getIndex() == 0) {
 //            return new GenGlobGetIntAccessor_i1();
 //        }
-//        else if (field.getIndex() == 1) {
-//            return new GenGlobGetIntAccessor_ia1();
-//        }
+////        else if (field.getIndex() == 1) {
+////            return new GenGlobGetIntAccessor_ia1();
+////        }
+//        return null;
 //    }
-//
+
 //    private static class GenGlobGetIntAccessor_i1 implements GlobGetIntAccessor {
 //        public Object getValue(Glob glob) {
 //            return get(glob);
@@ -134,16 +170,15 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
 //
 //        public int get(Glob glob, int defaultValueIfNull) {
 //            GeneratedObjectGlob generatedObjectGlob = (GeneratedObjectGlob) glob;
-//            boolean isSetAt = generatedObjectGlob.isSetAt(0);
 //            Integer val = generatedObjectGlob.i1;
-//            return isSetAt ? val == null ? defaultValueIfNull : val : defaultValueIfNull;
+//            return val == null ? defaultValueIfNull : val;
 //        }
 //
 //        public int getNative(Glob glob) {
 //            GeneratedObjectGlob generatedObjectGlob = (GeneratedObjectGlob) glob;
-//            boolean isSetAt = generatedObjectGlob.isSetAt(0);
+////            boolean isSetAt = generatedObjectGlob.isSetAt(0);
 //            Integer val = generatedObjectGlob.i1;
-//            return isSetAt ? val == null ? 0 : val : 0;
+//            return val == null ? 0 : val;
 //        }
 //
 //        public Integer get(Glob glob) {

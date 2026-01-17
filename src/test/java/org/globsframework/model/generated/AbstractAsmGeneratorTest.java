@@ -14,10 +14,10 @@ import org.globsframework.core.model.globaccessor.get.GlobGetLongAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetDoubleAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetLongAccessor;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,7 +25,7 @@ import java.util.List;
 public abstract class AbstractAsmGeneratorTest {
     private String property;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         property = System.getProperty("org.globsframework.builder");
         System.setProperty("org.globsframework.builder", getFactoryService());
@@ -34,7 +34,7 @@ public abstract class AbstractAsmGeneratorTest {
 
     public abstract String getFactoryService();
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         if (property != null) {
             System.setProperty("org.globsframework.builder", property);
@@ -52,52 +52,52 @@ public abstract class AbstractAsmGeneratorTest {
         DoubleField d1 = globTypeBuilder.declareDoubleField("my double");
         LongField l1 = globTypeBuilder.declareLongField("my long");
         LongArrayField la1 = globTypeBuilder.declareLongArrayField("an array of Long");
-        GlobType globType = globTypeBuilder.get();
+        GlobType globType = globTypeBuilder.build();
 
         MutableGlob instantiate = globType.instantiate();
 
-        Assert.assertFalse(instantiate.isSet(i1));
-        Assert.assertFalse(instantiate.isSet(d1));
-        Assert.assertFalse(instantiate.isSet(l1));
-        Assert.assertFalse(instantiate.isSet(la1));
+        Assertions.assertFalse(instantiate.isSet(i1));
+        Assertions.assertFalse(instantiate.isSet(d1));
+        Assertions.assertFalse(instantiate.isSet(l1));
+        Assertions.assertFalse(instantiate.isSet(la1));
 
-        Assert.assertTrue(instantiate.isNull(i1));
-        Assert.assertTrue(instantiate.isNull(d1));
-        Assert.assertTrue(instantiate.isNull(l1));
-        Assert.assertTrue(instantiate.isNull(la1));
+        Assertions.assertTrue(instantiate.isNull(i1));
+        Assertions.assertTrue(instantiate.isNull(d1));
+        Assertions.assertTrue(instantiate.isNull(l1));
+        Assertions.assertTrue(instantiate.isNull(la1));
 
-        Assert.assertNull(instantiate.get(i1));
-        Assert.assertNull(instantiate.get(d1));
-        Assert.assertNull(instantiate.get(l1));
-        Assert.assertNull(instantiate.get(la1));
+        Assertions.assertNull(instantiate.get(i1));
+        Assertions.assertNull(instantiate.get(d1));
+        Assertions.assertNull(instantiate.get(l1));
+        Assertions.assertNull(instantiate.get(la1));
 
         instantiate.set(i1, 2);
-        Assert.assertNotNull(instantiate.get(i1));
-        Assert.assertTrue(instantiate.isSet(i1));
-        Assert.assertFalse(instantiate.isSet(d1));
-        Assert.assertFalse(instantiate.isSet(l1));
-        Assert.assertFalse(instantiate.isSet(la1));
+        Assertions.assertNotNull(instantiate.get(i1));
+        Assertions.assertTrue(instantiate.isSet(i1));
+        Assertions.assertFalse(instantiate.isSet(d1));
+        Assertions.assertFalse(instantiate.isSet(l1));
+        Assertions.assertFalse(instantiate.isSet(la1));
 
         instantiate.set(d1, 2.2);
-        Assert.assertTrue(instantiate.isSet(d1));
-        Assert.assertFalse(instantiate.isSet(l1));
-        Assert.assertFalse(instantiate.isSet(la1));
+        Assertions.assertTrue(instantiate.isSet(d1));
+        Assertions.assertFalse(instantiate.isSet(l1));
+        Assertions.assertFalse(instantiate.isSet(la1));
         instantiate.set(l1, 123);
 
-        Assert.assertTrue(instantiate.isSet(l1));
-        Assert.assertFalse(instantiate.isSet(la1));
+        Assertions.assertTrue(instantiate.isSet(l1));
+        Assertions.assertFalse(instantiate.isSet(la1));
 
         instantiate.set(la1, new long[]{2, 3});
-        Assert.assertTrue(instantiate.isSet(la1));
-        Assert.assertTrue(instantiate.isSet(l1));
-        Assert.assertTrue(instantiate.isSet(i1));
+        Assertions.assertTrue(instantiate.isSet(la1));
+        Assertions.assertTrue(instantiate.isSet(l1));
+        Assertions.assertTrue(instantiate.isSet(i1));
 
 
-        Assert.assertEquals(2, instantiate.get(i1).intValue());
-        Assert.assertEquals(2.2, instantiate.get(d1), 0.01);
-        Assert.assertEquals(123, instantiate.get(l1).longValue());
-        Assert.assertEquals(2, instantiate.get(la1)[0]);
-        Assert.assertEquals(3, instantiate.get(la1)[1]);
+        Assertions.assertEquals(2, instantiate.get(i1).intValue());
+        Assertions.assertEquals(2.2, instantiate.get(d1), 0.01);
+        Assertions.assertEquals(123, instantiate.get(l1).longValue());
+        Assertions.assertEquals(2, instantiate.get(la1)[0]);
+        Assertions.assertEquals(3, instantiate.get(la1)[1]);
 
         GlobGetIntAccessor iGet = globType.getGlobFactory().getGetAccessor(i1);
         GlobGetDoubleAccessor dGet = globType.getGlobFactory().getGetAccessor(d1);
@@ -111,14 +111,14 @@ public abstract class AbstractAsmGeneratorTest {
         dSet.set(instantiate, 3.3);
         lSet.set(instantiate, 321L);
 
-        Assert.assertEquals(3, iGet.getNative(instantiate));
-        Assert.assertEquals(3.3, dGet.getNative(instantiate), 0.001);
-        Assert.assertEquals(321L, lGet.getNative(instantiate));
+        Assertions.assertEquals(3, iGet.getNative(instantiate));
+        Assertions.assertEquals(3.3, dGet.getNative(instantiate), 0.001);
+        Assertions.assertEquals(321L, lGet.getNative(instantiate));
 
 
-        Assert.assertEquals(3, iGet.get(instantiate).intValue());
-        Assert.assertEquals(3.3, dGet.get(instantiate), 0.001);
-        Assert.assertEquals(321L, lGet.get(instantiate).longValue());
+        Assertions.assertEquals(3, iGet.get(instantiate).intValue());
+        Assertions.assertEquals(3.3, dGet.get(instantiate), 0.001);
+        Assertions.assertEquals(321L, lGet.get(instantiate).longValue());
 
         instantiate.safeApply((field, value) -> System.out.println(field.getName() + ":" + value));
         instantiate.safeAccept(new FieldValueVisitor.AbstractFieldValueVisitor() {
@@ -128,42 +128,42 @@ public abstract class AbstractAsmGeneratorTest {
         });
 
         iSet.set(instantiate, null);
-        Assert.assertNotNull(instantiate.get(d1));
-        Assert.assertNotNull(instantiate.get(l1));
+        Assertions.assertNotNull(instantiate.get(d1));
+        Assertions.assertNotNull(instantiate.get(l1));
         dSet.set(instantiate, null);
-        Assert.assertNotNull(instantiate.get(l1));
+        Assertions.assertNotNull(instantiate.get(l1));
         lSet.set(instantiate, null);
 
-        Assert.assertNull(instantiate.get(i1));
-        Assert.assertNull(instantiate.get(d1));
-        Assert.assertNull(instantiate.get(l1));
+        Assertions.assertNull(instantiate.get(i1));
+        Assertions.assertNull(instantiate.get(d1));
+        Assertions.assertNull(instantiate.get(l1));
 
-        Assert.assertTrue(instantiate.isSet(i1));
-        Assert.assertTrue(instantiate.isSet(d1));
-        Assert.assertTrue(instantiate.isSet(l1));
-        Assert.assertTrue(instantiate.isSet(la1));
+        Assertions.assertTrue(instantiate.isSet(i1));
+        Assertions.assertTrue(instantiate.isSet(d1));
+        Assertions.assertTrue(instantiate.isSet(l1));
+        Assertions.assertTrue(instantiate.isSet(la1));
 
         MutableGlob duplicate = instantiate.duplicate();
 
-        Assert.assertTrue(instantiate.matches(duplicate));
-        Assert.assertNotSame(instantiate, duplicate);
+        Assertions.assertTrue(instantiate.matches(duplicate));
+        Assertions.assertNotSame(instantiate, duplicate);
 
         instantiate.unset(d1);
-        Assert.assertFalse(instantiate.isSet(d1));
+        Assertions.assertFalse(instantiate.isSet(d1));
         instantiate.unset(i1);
-        Assert.assertFalse(instantiate.isSet(i1));
+        Assertions.assertFalse(instantiate.isSet(i1));
         instantiate.unset(l1);
-        Assert.assertFalse(instantiate.isSet(l1));
+        Assertions.assertFalse(instantiate.isSet(l1));
         instantiate.unset(la1);
-        Assert.assertFalse(instantiate.isSet(la1));
+        Assertions.assertFalse(instantiate.isSet(la1));
     }
 
     @Test
     public void checkAnnotations() {
         DefaultBoolean.TYPE.instantiate().set(DefaultBoolean.VALUE, true);
         final MutableGlob instantiate = AutoIncrement.TYPE.instantiate();
-        Assert.assertEquals(instantiate.getKey(), AutoIncrement.KEY);
-        Assert.assertSame(instantiate.getType(), AutoIncrement.TYPE);
+        Assertions.assertEquals(instantiate.getKey(), AutoIncrement.KEY);
+        Assertions.assertSame(instantiate.getType(), AutoIncrement.TYPE);
     }
 
     @Test
@@ -176,13 +176,13 @@ public abstract class AbstractAsmGeneratorTest {
             allField.add(globTypeBuilder.declareDoubleField("my double" + i));
             allField.add(globTypeBuilder.declareStringField("my String" + i));
         }
-        GlobType globType = globTypeBuilder.get();
+        GlobType globType = globTypeBuilder.build();
         MutableGlob instantiate = globType.instantiate();
         for (Field field : allField) {
-            Assert.assertFalse(instantiate.isSet(field));
+            Assertions.assertFalse(instantiate.isSet(field));
         }
         for (Field field : allField) {
-            Assert.assertTrue(instantiate.isNull(field));
+            Assertions.assertTrue(instantiate.isNull(field));
             if (field.getName().contains("int")) {
                 instantiate.setValue(field, 0);
             } else if (field.getName().contains("double")) {
@@ -190,20 +190,20 @@ public abstract class AbstractAsmGeneratorTest {
             } else if (field.getName().contains("String")) {
                 instantiate.setValue(field, "STR");
             }
-            Assert.assertTrue(instantiate.isSet(field));
-            Assert.assertFalse(instantiate.isNull(field));
+            Assertions.assertTrue(instantiate.isSet(field));
+            Assertions.assertFalse(instantiate.isNull(field));
         }
         for (Field field : allField) {
-            Assert.assertTrue(instantiate.isSet(field));
+            Assertions.assertTrue(instantiate.isSet(field));
             instantiate.unset(field);
-            Assert.assertFalse(instantiate.isSet(field));
+            Assertions.assertFalse(instantiate.isSet(field));
         }
         for (Field field : allField) {
-            Assert.assertFalse(instantiate.isSet(field));
-            Assert.assertTrue(instantiate.isNull(field));
+            Assertions.assertFalse(instantiate.isSet(field));
+            Assertions.assertTrue(instantiate.isNull(field));
             instantiate.setValue(field, null);
-            Assert.assertTrue(instantiate.isNull(field));
-            Assert.assertTrue(instantiate.isSet(field));
+            Assertions.assertTrue(instantiate.isNull(field));
+            Assertions.assertTrue(instantiate.isSet(field));
         }
     }
 }

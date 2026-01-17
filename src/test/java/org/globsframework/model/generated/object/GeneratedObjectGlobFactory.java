@@ -4,7 +4,9 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.IntegerArrayField;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
+import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
 import org.globsframework.model.generator.primitive.AsmGlobPrimitiveGenerator;
 
 public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
@@ -28,7 +30,14 @@ public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
         return new GeneratedObjectGlob();
     }
 
-//    public <T extends FieldVisitor> T accept(T visitor) throws Exception {
+    @Override
+    public GlobGetIntAccessor getGetAccessor(IntegerField field) {
+        return null;
+//        return (GlobGetIntAccessor) GeneratedObjectGlob.getGetAccessor(field);
+    }
+
+
+    //    public <T extends FieldVisitor> T accept(T visitor) throws Exception {
 //        f1.accept(visitor);
 //        f2.accept(visitor);
 //        return visitor;
