@@ -1,11 +1,10 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.globsframework</groupId>
     <packaging>jar</packaging>
     <artifactId>globs-generate</artifactId>
     <name>Generic Lightweight ObjectS Asm generator</name>
-    <version>5.0-SNAPSHOT</version>
+    <version>5.0.0</version>
 
     <repositories>
         <repository>
@@ -26,7 +25,8 @@
         <connection>scm:git:git@github.com:globsframework/globs-generate</connection>
         <developerConnection>scm:git:git@github.com:globsframework/globs-generate</developerConnection>
         <url>https://github.com/globsframework/globs-generate</url>
-    </scm>
+      <tag>5.0.0</tag>
+  </scm>
 
     <build>
         <plugins>
