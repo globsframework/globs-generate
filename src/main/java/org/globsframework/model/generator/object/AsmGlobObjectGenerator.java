@@ -7,6 +7,7 @@ import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
 import org.globsframework.model.generator.AbstractGeneratedGlobFactory;
 import org.globsframework.model.generator.AsmAccessorGenerator;
+import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.globsframework.model.generator.FieldVisitorToVisitName;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
@@ -359,14 +360,8 @@ public class AsmGlobObjectGenerator {
                     "Lorg/globsframework/core/metamodel/GlobType;", null, null);
             fieldVisitor.visitEnd();
         }
-        {
-            for (Field field : globType.getFields()) {
-                fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC,
-                        getFieldName(field),
-                        "Lorg/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name + ";", null, null);
-                fieldVisitor.visitEnd();
-            }
-        }
+        AsmFactoryGenerator.generateFieldConstants(classWriter, globType.getFields());
+        AsmFactoryGenerator.generateAccepts(classWriter, getGeneratedGlobFactoryName(id), globType.getFields());
 
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
@@ -396,15 +391,8 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generator/object/AsmGlobObjectGenerator", "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
             methodVisitor.visitFieldInsn(PUTSTATIC, getGeneratedGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
 
-            for (Field field : globType.getFields()) {
-                methodVisitor.visitFieldInsn(GETSTATIC, getGeneratedGlobFactoryName(id),
-                        "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
-                methodVisitor.visitLdcInsn(field.getName());
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/core/metamodel/GlobType", "findField", "(Ljava/lang/String;)Lorg/globsframework/core/metamodel/fields/Field;", true);
-                methodVisitor.visitTypeInsn(CHECKCAST, "org/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name);
-                methodVisitor.visitFieldInsn(PUTSTATIC, getGeneratedGlobFactoryName(id), getFieldName(field),
-                        "Lorg/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name + ";");
-            }
+            AsmFactoryGenerator.generateFieldConstantsInit(methodVisitor, getGeneratedGlobFactoryName(id),
+                    globType.getFields());
 
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(globType.getFieldCount() + 1, 0);

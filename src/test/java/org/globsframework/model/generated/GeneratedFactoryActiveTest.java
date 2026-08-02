@@ -5,6 +5,7 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.Glob;
+import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
@@ -269,6 +270,69 @@ public class GeneratedFactoryActiveTest {
 
         private void fail(Field field) {
             throw new IllegalStateException("unset field visited : " + field.getName());
+        }
+    }
+
+    /**
+     * The three GlobFactory.accept overloads, generated unrolled on the factory. They walk the fields of the
+     * type (not the values of a Glob), so all of them must visit every field, in index order, and forward
+     * the contexts untouched.
+     */
+    @Test
+    public void factoryAcceptsVisitEveryFieldInOrder() throws Exception {
+        for (String service : new String[]{
+                "org.globsframework.model.generator.object.GeneratorGlobFactoryService",
+                "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService"}) {
+            String tag = service.contains("object") ? "Obj" : "Prim";
+            System.setProperty("globs.builder", service);
+            GlobFactoryService.Builder.reset();
+            GlobType type = build("FactAccept" + tag, 7);
+            GlobFactory factory = type.getGlobFactory();
+
+            // otherwise the GlobFactory default methods would answer and this test would prove nothing
+            for (Class<?>[] params : new Class<?>[][]{
+                    {FieldVisitor.class},
+                    {FieldVisitorWithContext.class, Object.class},
+                    {FieldVisitorWithTwoContext.class, Object.class, Object.class}}) {
+                Assertions.assertDoesNotThrow(() -> factory.getClass().getDeclaredMethod("accept", params),
+                        "accept" + java.util.Arrays.toString(params) + " not generated on "
+                        + factory.getClass().getName());
+            }
+
+            String expected = String.join(",", java.util.Arrays.stream(type.getFields())
+                    .map(Field::getName).toList());
+
+            StringBuilder plain = new StringBuilder();
+            factory.accept(new FieldVisitor.AbstractFieldVisitor() {
+                public void notManaged(Field field) {
+                    plain.append(plain.isEmpty() ? "" : ",").append(field.getName());
+                }
+            });
+            Assertions.assertEquals(expected, plain.toString(), "accept(visitor) on " + service);
+
+            StringBuilder one = new StringBuilder();
+            StringBuilder returnedContext = new StringBuilder();
+            factory.accept(new FieldVisitorWithContext.AbstractFieldVisitor<StringBuilder>() {
+                public void notManaged(Field field, StringBuilder ctx) {
+                    Assertions.assertSame(one, ctx, "the context must be forwarded as is");
+                    ctx.append(ctx.isEmpty() ? "" : ",").append(field.getName());
+                }
+            }, one);
+            Assertions.assertEquals(expected, one.toString(), "accept(visitor, ctx) on " + service);
+            Assertions.assertTrue(returnedContext.isEmpty());
+
+            StringBuilder first = new StringBuilder();
+            StringBuilder second = new StringBuilder();
+            factory.accept(new FieldVisitorWithTwoContext.AbstractFieldVisitor<StringBuilder, StringBuilder>() {
+                public void notManaged(Field field, StringBuilder ctx1, StringBuilder ctx2) {
+                    Assertions.assertSame(first, ctx1, "first context must be forwarded as is");
+                    Assertions.assertSame(second, ctx2, "second context must be forwarded as is");
+                    ctx1.append(ctx1.isEmpty() ? "" : ",").append(field.getName());
+                    ctx2.append(field.getIndex());
+                }
+            }, first, second);
+            Assertions.assertEquals(expected, first.toString(), "accept(visitor, c1, c2) on " + service);
+            Assertions.assertEquals("0123456", second.toString(), "second context on " + service);
         }
     }
 

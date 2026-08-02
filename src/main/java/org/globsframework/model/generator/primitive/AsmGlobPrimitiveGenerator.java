@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.model.generator.AsmAccessorGenerator;
+import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -297,6 +298,10 @@ public class AsmGlobPrimitiveGenerator {
             fieldVisitor.visitEnd();
         }
 
+        // the per-field constants did not exist on this flavour : the three accept() need them
+        AsmFactoryGenerator.generateFieldConstants(classWriter, globType.getFields());
+        AsmFactoryGenerator.generateAccepts(classWriter, getGlobFactoryName(id), globType.getFields());
+
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             methodVisitor.visitCode();
@@ -324,8 +329,11 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitCode();
             methodVisitor.visitFieldInsn(GETSTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator", "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
             methodVisitor.visitFieldInsn(PUTSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
+
+            AsmFactoryGenerator.generateFieldConstantsInit(methodVisitor, getGlobFactoryName(id), globType.getFields());
+
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(1, 0);
+            methodVisitor.visitMaxs(2, 0);
             methodVisitor.visitEnd();
         }
 

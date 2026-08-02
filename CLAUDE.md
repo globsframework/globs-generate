@@ -91,8 +91,15 @@ Constraints that fall out of generating accessors, all of them load-time failure
    `<clinit>` reads that static and copies it into its own `TYPE`. This is why `create` is `synchronized`:
    the static is a single-slot channel between the generator and the class being initialized. Anything that
    changes the load order or drops the `synchronized` breaks type wiring.
-3. load the factory class and instantiate it; it extends core's `DefaultGlobFactory`, so accessors
-   (`getGetAccessor`/`getSetAccessor`) and everything not overridden come from core.
+3. load the factory class and instantiate it, then install the generated accessors into it.
+
+The factory side is emitted by the shared `AsmFactoryGenerator`, used by both flavours: a `public static
+final` constant per field (`IntegerField myField;`, resolved in `<clinit>` through `TYPE.findField(name)`)
+and the three `GlobFactory.accept` overloads (`FieldVisitor`, `FieldVisitorWithContext`,
+`FieldVisitorWithTwoContext`) unrolled over those constants. Those three walk the *fields of the type*, not
+the values of a Glob, so the unrolled form is one `INVOKEINTERFACE` per field — no loop, no `isSet` test, no
+branch. The field constants also back the unrolled visitors of the generated Glob, which is why the
+sanitised name (`AsmFactoryGenerator.fieldName`) has to agree between the two generators.
 
 The generated `Glob` extends one of the four hand-written bases in this repo, chosen by field count:
 
