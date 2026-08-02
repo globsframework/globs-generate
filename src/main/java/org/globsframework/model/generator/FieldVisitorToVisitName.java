@@ -216,8 +216,8 @@ public class FieldVisitorToVisitName implements org.globsframework.core.metamode
     public void visitBytes(BytesField field) {
         isArray = false;
         name = switch (characteristic) {
-            case visitor -> "visitBlob";
-            case fieldType -> "BlobField";
+            case visitor -> "visitBytes";
+            case fieldType -> "BytesField";
             case outputTypeSimple, nativeType, outputType -> "[B";
             case getAccessor -> "AbstractGlobGetBytesAccessor";
             case setAccessor -> "AbstractGlobSetBytesAccessor";

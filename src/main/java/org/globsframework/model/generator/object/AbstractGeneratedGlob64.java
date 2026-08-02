@@ -3,16 +3,19 @@ package org.globsframework.model.generator.object;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.metamodel.fields.FieldValueVisitor;
+import org.globsframework.core.metamodel.fields.FieldValueVisitorWithContext;
 import org.globsframework.core.model.Key;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.ReservationException;
-import org.globsframework.core.model.impl.AbstractMutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
+import org.globsframework.model.generator.AbstractMutableGlob;
 
 abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
     private int hashCode;
-    private int reserve = 0;
     private long isSet;
+
+    public void setSetAt(int index) {
+        isSet |= (1L << index);
+    }
 
     public boolean isSetAt(int index) {
         return (isSet & (1L << index)) != 0;
@@ -52,24 +55,35 @@ abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
         return hashCode != 0;
     }
 
-//    public <T extends Functor>
-//    T apply(T functor) throws Exception {
-//        for (Field field : getType().getFields()) {
-//            if (isSet(field)) {
-//                functor.process(field, doGet(field));
-//            }
-//        }
-//        return functor;
-//    }
+    // Looped fallbacks : used only when AsmGlobObjectGenerator.UNROLL_VISITORS is off, the generated
+    // class overrides both otherwise.
+    public <T extends Functor>
+    T apply(T functor) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                functor.process(field, doGet(field));
+            }
+        }
+        return functor;
+    }
 
-//    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-//        for (Field field : getType().getFields()) {
-//            if (isSet(field)) { //  || field.isKeyField()
-//                field.accept(functor, doGet(field));
-//            }
-//        }
-//        return functor;
-//    }
+    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                field.acceptValue(functor, doGet(field));
+            }
+        }
+        return functor;
+    }
+
+    public <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                field.acceptValue(functor, doGet(field), ctx);
+            }
+        }
+        return functor;
+    }
 
     public static void throwError(GlobType globType, Field field) {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + globType.describe());
@@ -115,67 +129,6 @@ abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
             }
         }
         return true;
-    }
-    @Override
-    public void checkReserved() {
-        if (reserve < 0) {
-            throw new ReservationException("Data not reserved");
-        }
-    }
-
-    @Override
-    public void reserve(int key) {
-        if (key <= 0) {
-            throw new ReservationException("Reserved key <= 0 Got " + key);
-        }
-        if (reserve > 0) {
-            throw new ReservationException("Already reserved by " + key);
-        }
-        reserve = key;
-    }
-
-    @Override
-    public boolean release(int key) {
-        if (key <= 0) {
-            throw new ReservationException("Released key <= 0 Got " + key);
-        }
-        if (reserve == -key) {
-            return false;
-        }
-        if (reserve != 0) {
-            if (reserve != key) {
-                throw new ReservationException("Can not release data : reserved by " + reserve + " != " + key);
-            }
-            reserve = -key;
-        } else {
-            throw new ReservationException("Can not release not own Glob '" + key + "'");
-        }
-        hashCode = 0;
-        isSet = 0;
-        return true;
-    }
-
-    @Override
-    public void unReserve() {
-        hashCode = 0;
-        reserve = 0;
-    }
-
-    @Override
-    public boolean isReserved() {
-        return reserve > 0;
-    }
-
-    @Override
-    public boolean isReservedBy(int key) {
-        return key > 0 && reserve == key;
-    }
-
-    @Override
-    public void checkWasReservedBy(int key) {
-        if (key <= 0 || reserve != -key) {
-            throw new ReservationException("Data was not reserved by " + reserve + " != " + key);
-        }
     }
 
 }

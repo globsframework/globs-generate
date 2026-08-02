@@ -8,7 +8,6 @@ import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
-import org.globsframework.core.model.globaccessor.set.impl.AbstractGlobSetIntAccessor;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 import org.globsframework.model.generator.primitive.AbstractGeneratedGlob32;
 
@@ -64,7 +63,7 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
     }
 
 
-    static class PrimitiveGlobSetIntAccessor_i1 extends AbstractGlobSetIntAccessor implements GlobSetIntAccessor {
+    static class PrimitiveGlobSetIntAccessor_i1 implements GlobSetIntAccessor {
         public static final GlobSetAccessor INSTANCE = new PrimitiveGlobSetIntAccessor_i1(GeneratedGlobPrimitiveFactory.f1);
         final int valueSet;
         final int valueUnSet;
@@ -106,20 +105,17 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
         @Override
         public int get(Glob glob, int defaultValueIfNull) {
             final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
-            typeData.checkReserved();
             return uncheckedIsNull(typeData) ? defaultValueIfNull : typeData.i1;
         }
 
         public int getNative(Glob glob) {
             final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
-            typeData.checkReserved();
             return typeData.i1;
         }
 
         @Override
         public Integer get(Glob glob) {
             final GeneratedGlobPrimitiveGlob typeData = (GeneratedGlobPrimitiveGlob) glob;
-            typeData.checkReserved();
             if (uncheckedIsNull(typeData)) {
                 return null;
             }

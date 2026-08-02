@@ -5,7 +5,7 @@ import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 
-// set propertty org.globsframework.builder to org.globsframework.model.generator.object.GeneratorGlobFactoryService
+// set propertty globs.builder to org.globsframework.model.generator.object.GeneratorGlobFactoryService
 // to activate
 
 public class GeneratorGlobFactoryService implements GlobFactoryService {

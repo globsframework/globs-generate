@@ -3,6 +3,7 @@ package org.globsframework.model.generator.primitive;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.GlobFactory;
+import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -22,22 +23,37 @@ public class AsmGlobPrimitiveGenerator {
             int id = ID.incrementAndGet();
             ClassLoader bytesClassloader = new ClassLoader(AsmGlobPrimitiveGenerator.class.getClassLoader()) {
                 protected Class<?> findClass(String name) throws ClassNotFoundException {
-                    if (name.replace('.', '/').equalsIgnoreCase(getGlobFactoryName(id))) {
+                    String internalName = name.replace('.', '/');
+                    if (internalName.equalsIgnoreCase(getGlobFactoryName(id))) {
                         byte[] b = generateFactory(globType, id);
                         return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                    } else if (name.replace('.', '/').equalsIgnoreCase(GenerateSetNullVisitor.getGlobName(id))) {
+                    } else if (internalName.equalsIgnoreCase(GenerateSetNullVisitor.getGlobName(id))) {
                         byte[] b = generateGlob(id, globType);
                         return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                    } else {
-                        return super.findClass(name);
                     }
+                    String globName = GenerateSetNullVisitor.getGlobName(id);
+                    for (Field field : globType.getFields()) {
+                        byte[] b = null;
+                        if (internalName.equals(AsmAccessorGenerator.getGetAccessorName(globName, field.getIndex()))) {
+                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, true);
+                        } else if (internalName.equals(AsmAccessorGenerator.getSetAccessorName(globName, field.getIndex()))) {
+                            b = AsmAccessorGenerator.generateSet(globName, getFieldName(field), field, true);
+                        }
+                        if (b != null) {
+                            return super.defineClass(name.replace("/", "."), b, 0, b.length);
+                        }
+                    }
+                    return super.findClass(name);
                 }
             };
             try {
                 TYPE = globType;
-                return (GlobFactory) bytesClassloader.loadClass(getGlobFactoryName(id))
+                GlobFactory factory = (GlobFactory) bytesClassloader.loadClass(getGlobFactoryName(id))
                         .getDeclaredConstructor()
                         .newInstance();
+                AsmAccessorGenerator.installAccessors(factory, globType, bytesClassloader,
+                        GenerateSetNullVisitor.getGlobName(id));
+                return factory;
             } catch (Throwable e) {
                 throw new RuntimeException("fail ", e);
             }
@@ -74,7 +90,8 @@ public class AsmGlobPrimitiveGenerator {
         FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
         {
             for (Field field : fields) {
-                fieldVisitor = classWriter.visitField(ACC_PRIVATE, getFieldName(field), field.safeAccept(visitor.withWithNativeType()).name, null, null);
+                // public, not private : the generated accessor classes GETFIELD/PUTFIELD them directly
+                fieldVisitor = classWriter.visitField(ACC_PUBLIC, getFieldName(field), field.safeAccept(visitor.withWithNativeType()).name, null, null);
                 fieldVisitor.visitEnd();
             }
         }
@@ -265,7 +282,6 @@ public class AsmGlobPrimitiveGenerator {
         return classWriter.toByteArray();
     }
 
-
     public static byte[] generateFactory(GlobType globType, int id) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
@@ -273,7 +289,7 @@ public class AsmGlobPrimitiveGenerator {
         AnnotationVisitor annotationVisitor0;
 
         classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, getGlobFactoryName(id),
-                null, "org/globsframework/core/metamodel/impl/DefaultGlobFactory", null);
+                null, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", null);
 
         {
             fieldVisitor = classWriter.visitField(ACC_PUBLIC | ACC_FINAL | ACC_STATIC, "TYPE",
@@ -286,19 +302,21 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/core/metamodel/impl/DefaultGlobFactory", "<init>", "(Lorg/globsframework/core/metamodel/GlobType;)V", false);
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", "<init>", "(Lorg/globsframework/core/metamodel/GlobType;)V", false);
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(2, 1);
             methodVisitor.visitEnd();
         }
         {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "create", "()Lorg/globsframework/core/model/MutableGlob;", null, null);
+            // GlobFactory.create takes a context since globs 5.8 : the descriptor must match or the
+            // inherited DefaultGlobFactory.create(Object) silently wins and no generated Glob is ever built.
+            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "create", "(Ljava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitTypeInsn(NEW, GenerateSetNullVisitor.getGlobName(id));
             methodVisitor.visitInsn(DUP);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, GenerateSetNullVisitor.getGlobName(id), "<init>", "()V", false);
             methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, 1);
+            methodVisitor.visitMaxs(2, 2);
             methodVisitor.visitEnd();
         }
         {
@@ -539,8 +557,8 @@ public class AsmGlobPrimitiveGenerator {
         public void visitBytes(BytesField field) {
             isArray = false;
             name = switch (characteristic) {
-                case visitor -> "visitBlob";
-                case fieldType -> "BlobField";
+                case visitor -> "visitBytes";
+                case fieldType -> "BytesField";
                 case outputTypeSimple, nativeType, outputType -> "[B";
                 case getAccessor -> "AbstractGlobGetBytesAccessor";
                 case setAccessor -> "AbstractGlobSetBytesAccessor";

@@ -27,8 +27,8 @@ public abstract class AbstractAsmGeneratorTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        property = System.getProperty("org.globsframework.builder");
-        System.setProperty("org.globsframework.builder", getFactoryService());
+        property = System.getProperty("globs.builder");
+        System.setProperty("globs.builder", getFactoryService());
         GlobFactoryService.Builder.reset();
     }
 
@@ -37,9 +37,9 @@ public abstract class AbstractAsmGeneratorTest {
     @AfterEach
     public void tearDown() throws Exception {
         if (property != null) {
-            System.setProperty("org.globsframework.builder", property);
+            System.setProperty("globs.builder", property);
         } else {
-            System.clearProperty("org.globsframework.builder");
+            System.clearProperty("globs.builder");
         }
         GlobFactoryService.Builder.reset();
     }
@@ -164,6 +164,47 @@ public abstract class AbstractAsmGeneratorTest {
         final MutableGlob instantiate = AutoIncrement.TYPE.instantiate();
         Assertions.assertEquals(instantiate.getKey(), AutoIncrement.KEY);
         Assertions.assertSame(instantiate.getType(), AutoIncrement.TYPE);
+    }
+
+    @Test
+    public void checkGlobWithBetween32And64Field() {
+        GlobTypeBuilder globTypeBuilder = GlobTypeBuilderFactory.create("GlobType1");
+
+        List<Field> allField = new ArrayList<>();
+        for (int i = 0; i < 15; i++) {
+            allField.add(globTypeBuilder.declareIntegerField("int" + i));
+            allField.add(globTypeBuilder.declareDoubleField("my double" + i));
+            allField.add(globTypeBuilder.declareStringField("my String" + i));
+        }
+        GlobType globType = globTypeBuilder.build();
+        Assertions.assertEquals(45, globType.getFieldCount()); // 32 < count <= 64 : the 64 bits impl
+
+        MutableGlob instantiate = globType.instantiate();
+        for (Field field : allField) {
+            Assertions.assertFalse(instantiate.isSet(field));
+            Assertions.assertTrue(instantiate.isNull(field));
+            Assertions.assertNull(instantiate.getValue(field));
+        }
+
+        for (Field field : allField) {
+            if (field.getName().contains("int")) {
+                instantiate.setValue(field, 3);
+            } else if (field.getName().contains("double")) {
+                instantiate.setValue(field, 3.3);
+            } else {
+                instantiate.setValue(field, "STR");
+            }
+            Assertions.assertTrue(instantiate.isSet(field));
+            Assertions.assertFalse(instantiate.isNull(field));
+            Assertions.assertNotNull(instantiate.getValue(field));
+        }
+
+        for (Field field : allField) {
+            instantiate.setValue(field, null);
+            Assertions.assertTrue(instantiate.isSet(field));
+            Assertions.assertTrue(instantiate.isNull(field));
+            Assertions.assertNull(instantiate.getValue(field));
+        }
     }
 
     @Test
