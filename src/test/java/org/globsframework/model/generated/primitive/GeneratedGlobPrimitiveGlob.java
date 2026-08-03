@@ -43,12 +43,12 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
     }
 
     @Override
-    public MutableGlob getMutable(GlobField field) throws ItemNotFound {
+    public MutableGlob getMutable(GlobField<?> field) throws ItemNotFound {
         return null;
     }
 
     @Override
-    public MutableGlob[] getMutable(GlobArrayField field) throws ItemNotFound {
+    public MutableGlob[] getMutable(GlobArrayField<?> field) throws ItemNotFound {
         return new MutableGlob[0];
     }
 

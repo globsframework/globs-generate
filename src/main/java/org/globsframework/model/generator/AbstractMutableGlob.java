@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
@@ -91,11 +92,11 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
         return setObject(field, value);
     }
 
-    default MutableGlob set(GlobField field, Glob value) throws ItemNotFound {
+    default MutableGlob set(GlobField<?> field, Glob value) throws ItemNotFound {
         return setObject(field, value);
     }
 
-    default MutableGlob set(GlobArrayField field, Glob[] values) throws ItemNotFound {
+    default MutableGlob set(GlobArrayField<?> field, Glob[] values) throws ItemNotFound {
         return setObject(field, values);
     }
 
@@ -169,6 +170,54 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
 
     default Key getKey() {
         return this;
+    }
+
+    @Override
+    default MutableGlob getMutable(GlobField<?> field) throws ItemNotFound {
+        return getMutableGlob(get(field), field);
+    }
+
+    @Override
+    default MutableGlob[] getMutable(GlobArrayField<?> field) throws ItemNotFound {
+        return getMutableGlobs(get(field), field);
+    }
+
+    @Override
+    default MutableGlob getMutable(GlobUnionField field) throws ItemNotFound {
+        return getMutableGlob(get(field), field);
+    }
+
+    private MutableGlob getMutableGlob(Glob glob, Field field) {
+        if (glob == null || glob instanceof MutableGlob) {
+            return (MutableGlob) glob;
+        }
+        throw new ClassCastException(glob.getClass().getName() + " is not mutable on field " + field.getName());
+    }
+
+    @Override
+    default MutableGlob[] getMutable(GlobArrayUnionField field) throws ItemNotFound {
+        return getMutableGlobs(get(field), field);
+    }
+
+    private MutableGlob[] getMutableGlobs(Glob[] globs, Field field) {
+        if (globs != null) {
+            if (globs instanceof MutableGlob[]) {
+                return (MutableGlob[]) globs;
+            } else {
+                if (FieldCheck.CheckGlob.shouldCheck) {
+                    for (Glob value : globs) {
+                        if (value != null && !(value instanceof MutableGlob)) {
+                            throw new ClassCastException(value.getClass().getName() + " is not mutable on field " + field.getName());
+                        }
+                    }
+                }
+                final MutableGlob[] value = Arrays.copyOfRange(globs, 0, globs.length, MutableGlob[].class);
+                setObject(field, value);
+                return value;
+            }
+        } else {
+            return null;
+        }
     }
 
 }

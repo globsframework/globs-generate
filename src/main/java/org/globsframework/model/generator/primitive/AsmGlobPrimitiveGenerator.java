@@ -573,7 +573,7 @@ public class AsmGlobPrimitiveGenerator {
             };
         }
 
-        public void visitGlob(GlobField field) {
+        public void visitGlob(GlobField<?> field) {
             isArray = false;
             name = switch (characteristic) {
                 case visitor -> "visitGlob";
@@ -585,7 +585,7 @@ public class AsmGlobPrimitiveGenerator {
             };
         }
 
-        public void visitGlobArray(GlobArrayField field) {
+        public void visitGlobArray(GlobArrayField<?> field) {
             isArray = true;
             name = switch (characteristic) {
                 case visitor -> "visitGlobArray";

@@ -262,11 +262,11 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
             instantiate.set(field, src.get(field).clone());
         }
 
-        public void visitGlob(GlobField field, MutableGlob instantiate, Glob src) throws Exception {
+        public void visitGlob(GlobField<?> field, MutableGlob instantiate, Glob src) throws Exception {
             instantiate.set(field, src.get(field).duplicate());
         }
 
-        public void visitGlobArray(GlobArrayField field, MutableGlob instantiate, Glob src) throws Exception {
+        public void visitGlobArray(GlobArrayField<?> field, MutableGlob instantiate, Glob src) throws Exception {
             instantiate.set(field, duplicate(src.get(field)));
         }
 

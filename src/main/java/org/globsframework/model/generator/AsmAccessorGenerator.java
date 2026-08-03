@@ -345,11 +345,11 @@ public class AsmAccessorGenerator {
             reference("Bytes", "[B");
         }
 
-        public void visitGlob(GlobField field) {
+        public void visitGlob(GlobField<?> field) {
             reference("Glob", "Lorg/globsframework/core/model/Glob;");
         }
 
-        public void visitGlobArray(GlobArrayField field) {
+        public void visitGlobArray(GlobArrayField<?> field) {
             reference("GlobArray", "[Lorg/globsframework/core/model/Glob;");
         }
 

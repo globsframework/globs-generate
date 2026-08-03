@@ -135,8 +135,8 @@ public class GeneratedFactoryActiveTest {
             DateField date = b.declareDateField("date");
             DateTimeField dateTime = b.declareDateTimeField("dateTime");
             BytesField bytes = b.declareBytesField("bytes");
-            GlobField globField = b.declareGlobField("glob", () -> targetType);
-            GlobArrayField globArray = b.declareGlobArrayField("globArray", () -> targetType);
+            GlobField<?> globField = b.declareGlobField("glob", () -> targetType);
+            GlobArrayField<?> globArray = b.declareGlobArrayField("globArray", () -> targetType);
             GlobType type = b.build();
 
             MutableGlob glob = type.instantiate();
@@ -263,8 +263,8 @@ public class GeneratedFactoryActiveTest {
         public void visitDate(DateField field, java.time.LocalDate value, StringBuilder ctx) { fail(field); }
         public void visitDateTime(DateTimeField field, java.time.ZonedDateTime value, StringBuilder ctx) { fail(field); }
         public void visitBytes(BytesField field, byte[] value, StringBuilder ctx) { fail(field); }
-        public void visitGlob(GlobField field, Glob value, StringBuilder ctx) { fail(field); }
-        public void visitGlobArray(GlobArrayField field, Glob[] value, StringBuilder ctx) { fail(field); }
+        public void visitGlob(GlobField<?> field, Glob value, StringBuilder ctx) { fail(field); }
+        public void visitGlobArray(GlobArrayField<?> field, Glob[] value, StringBuilder ctx) { fail(field); }
         public void visitUnionGlob(GlobUnionField field, Glob value, StringBuilder ctx) { fail(field); }
         public void visitUnionGlobArray(GlobArrayUnionField field, Glob[] value, StringBuilder ctx) { fail(field); }
 

@@ -362,12 +362,12 @@ public abstract class AbstractGeneratedGlobFactory implements GlobFactory {
             setAccessor = new SetBytes(field);
         }
 
-        public void visitGlob(GlobField field) {
+        public void visitGlob(GlobField<?> field) {
             getAccessor = new GetGlob(field);
             setAccessor = new SetGlob(field);
         }
 
-        public void visitGlobArray(GlobArrayField field) {
+        public void visitGlobArray(GlobArrayField<?> field) {
             getAccessor = new GetGlobArray(field);
             setAccessor = new SetGlobArray(field);
         }

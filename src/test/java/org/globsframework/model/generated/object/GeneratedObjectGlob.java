@@ -4,8 +4,6 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
-import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 import org.globsframework.model.generator.object.AbstractGeneratedGlob32;
 
@@ -134,12 +132,12 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     }
 
     @Override
-    public MutableGlob getMutable(GlobField field) throws ItemNotFound {
+    public MutableGlob getMutable(GlobField<?> field) throws ItemNotFound {
         return null;
     }
 
     @Override
-    public MutableGlob[] getMutable(GlobArrayField field) throws ItemNotFound {
+    public MutableGlob[] getMutable(GlobArrayField<?> field) throws ItemNotFound {
         return new MutableGlob[0];
     }
 
