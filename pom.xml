@@ -1,4 +1,5 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <description>Library that generate and load Glob specialized from there GlobType.</description>
     <url>https://globsframework.org</url>
@@ -37,30 +38,30 @@
         <connection>scm:git:git@github.com:globsframework/globs-generate</connection>
         <developerConnection>scm:git:git@github.com:globsframework/globs-generate</developerConnection>
         <url>https://github.com/globsframework/globs-generate</url>
-      <tag>HEAD</tag>
-  </scm>
+        <tag>HEAD</tag>
+    </scm>
 
     <profiles>
         <profile>
             <id>release</id>
-    <build>
-        <plugins>
-            <plugin>
+            <build>
+                <plugins>
+                    <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
                         <version>0.11.0</version>
                         <extensions>true</extensions>
-                <configuration>
+                        <configuration>
                             <publishingServerId>central</publishingServerId>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
                         <version>3.4.0</version>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
                                 <goals>
                                     <goal>jar-no-fork</goal>
                                 </goals>
@@ -74,11 +75,11 @@
                         <executions>
                             <execution>
                                 <id>attach-javadocs</id>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
                     </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
@@ -122,7 +123,7 @@
                 <configuration>
                     <source>21</source>
                     <target>21</target>
-<!--                    <compilerArgs>&#45;&#45;enable-preview</compilerArgs>-->
+                    <!--                    <compilerArgs>&#45;&#45;enable-preview</compilerArgs>-->
                     <!--                    <compilerArgs>&#45;&#45;enable-preview</compilerArgs>-->
                 </configuration>
             </plugin>
@@ -161,8 +162,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.6</version>
                 <configuration>
-<!--                    <argLine>&#45;&#45;enable-preview</argLine>-->
-<!--                    <argLine>-Dglobsframework.field.no.check=true</argLine>-->
+                    <!--                    <argLine>&#45;&#45;enable-preview</argLine>-->
+                    <!--                    <argLine>-Dglobsframework.field.no.check=true</argLine>-->
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
@@ -179,7 +180,7 @@
         <dependency>
             <groupId>org.globsframework</groupId>
             <artifactId>globs</artifactId>
-            <version>5.9.0</version>
+            <version>5.10.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
