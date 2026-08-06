@@ -38,7 +38,7 @@ public class AsmFactoryGenerator {
         }
     }
 
-    /** The part of <clinit> that resolves each constant from TYPE; the caller has already set TYPE. */
+    /** The part of {@code <clinit>} that resolves each constant from TYPE; the caller has already set TYPE. */
     public static void generateFieldConstantsInit(MethodVisitor methodVisitor, String factoryName, Field[] fields) {
         FieldVisitorToVisitName visitor = new FieldVisitorToVisitName();
         for (Field field : fields) {
