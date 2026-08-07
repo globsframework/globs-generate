@@ -87,11 +87,15 @@ Constraints that fall out of generating accessors, all of them load-time failure
 1. take a fresh `id` from a static `AtomicInteger`, and build a throwaway child `ClassLoader` whose
    `findClass` emits two classes on demand: `…generated/{object,primitive}/GeneratedGlob_<id>` and
    `GeneratedGlobFactory_<id>`;
-2. **hand the `GlobType` over through the static field `AsmGlob*Generator.TYPE`** — the generated factory's
-   `<clinit>` reads that static and copies it into its own `TYPE`. This is why `create` is `synchronized`:
-   the static is a single-slot channel between the generator and the class being initialized. Anything that
-   changes the load order or drops the `synchronized` breaks type wiring.
-3. load the factory class and instantiate it, then install the generated accessors into it.
+2. **register the `GlobType` under that `id`** in the generator's `PENDING_TYPES` map; the generated
+   factory's `<clinit>` calls `AsmGlob*Generator.getType(<id>)` and copies the result into its own `TYPE`.
+   Keyed by id, so `create` is *not* `synchronized` and concurrent generation of two types is safe
+   (`GeneratedFactoryActiveTest.concurrentGenerationWiresEachFactoryToItsOwnType` pins it — it was a
+   single-slot static `TYPE` channel before, which is what the `synchronized` used to protect). The entry is
+   removed in a `finally`, so the map never keeps a `GlobType` alive; `getType` throws
+   `IllegalStateException` if a generated class is somehow initialized outside of `create`.
+3. load the factory class and instantiate it (**instantiating** is what triggers the `<clinit>` above, while
+   the map entry is still there), then install the generated accessors into it.
 
 The factory side is emitted by the shared `AsmFactoryGenerator`, used by both flavours: a `public static
 final` constant per field (`IntegerField myField;`, resolved in `<clinit>` through `TYPE.findField(name)`)

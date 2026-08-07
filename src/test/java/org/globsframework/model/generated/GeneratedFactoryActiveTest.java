@@ -15,7 +15,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 /**
  * Guards the plumbing itself : until the create(Object) descriptor was fixed, every test in this module
@@ -333,6 +340,62 @@ public class GeneratedFactoryActiveTest {
             }, first, second);
             Assertions.assertEquals(expected, first.toString(), "accept(visitor, c1, c2) on " + service);
             Assertions.assertEquals("0123456", second.toString(), "second context on " + service);
+        }
+    }
+
+    /**
+     * The generated factory reads its GlobType from AsmGlob*Generator.getType(id) in its {@code <clinit>}.
+     * That replaced a single static TYPE slot, which forced create to be synchronized ; this pins that two
+     * types generated at the same time each end up wired to their own.
+     */
+    @Test
+    public void concurrentGenerationWiresEachFactoryToItsOwnType() throws Exception {
+        for (String service : new String[]{
+                "org.globsframework.model.generator.object.GeneratorGlobFactoryService",
+                "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService"}) {
+            System.setProperty("globs.builder", service);
+            GlobFactoryService.Builder.reset();
+
+            int threads = 8;
+            String tag = service.contains("object") ? "Obj" : "Prim";
+            ExecutorService executor = Executors.newFixedThreadPool(threads);
+            CyclicBarrier barrier = new CyclicBarrier(threads);
+            List<Future<GlobType>> futures = new ArrayList<>();
+            try {
+                for (int i = 0; i < threads; i++) {
+                    int fieldCount = 3 + i;
+                    String name = "Concurrent" + tag + i;
+                    futures.add(executor.submit(() -> {
+                        barrier.await();
+                        return build(name, fieldCount);
+                    }));
+                }
+                for (int i = 0; i < threads; i++) {
+                    GlobType type = futures.get(i).get();
+                    Assertions.assertEquals("Concurrent" + tag + i, type.getName());
+                    Assertions.assertEquals(3 + i, type.getFieldCount());
+
+                    MutableGlob glob = type.instantiate();
+                    Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+                            "not generated : " + glob.getClass().getName());
+                    // the factory's own view of the type, straight out of <clinit>
+                    Assertions.assertSame(type, glob.getType());
+                    Assertions.assertSame(type, type.getGlobFactory().getGlobType());
+
+                    // and the per-field static constants resolved from it
+                    StringBuilder visited = new StringBuilder();
+                    type.getGlobFactory().accept(new FieldVisitor.AbstractFieldVisitor() {
+                        public void notManaged(Field field) {
+                            Assertions.assertSame(type, field.getGlobType());
+                            visited.append(field.getName()).append(' ');
+                        }
+                    });
+                    Assertions.assertEquals(Arrays.stream(type.getFields()).map(Field::getName)
+                            .collect(Collectors.joining(" ", "", " ")), visited.toString());
+                }
+            } finally {
+                executor.shutdownNow();
+            }
         }
     }
 

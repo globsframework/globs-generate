@@ -7,7 +7,7 @@ import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
-import org.globsframework.model.generator.primitive.AsmGlobPrimitiveGenerator;
+import org.globsframework.model.generator.object.AsmGlobObjectGenerator;
 
 public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
     public static final GlobType TYPE;
@@ -17,7 +17,8 @@ public class GeneratedObjectGlobFactory extends DefaultGlobFactory {
     public static final IntegerArrayField f2;
 
     static {
-        TYPE = AsmGlobPrimitiveGenerator.TYPE;
+        // the generator emits its own id here, not the literal 1
+        TYPE = AsmGlobObjectGenerator.getType(1);
         f1 = (IntegerField) TYPE.findField("i1");
         f2 = (IntegerArrayField) TYPE.findField("i2");
     }
