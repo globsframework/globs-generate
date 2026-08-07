@@ -43,12 +43,6 @@ abstract public class AbstractGeneratedGlob32 implements AbstractMutableGlob {
         return isSetAt(field.getIndex());
     }
 
-    public MutableGlob unset(Field field) {
-        doSet(field, null);
-        clearSetAt(field.getIndex());
-        return this;
-    }
-
     public int hashCode() {
         if (hashCode != 0) {
             return hashCode;
@@ -67,35 +61,6 @@ abstract public class AbstractGeneratedGlob32 implements AbstractMutableGlob {
 
     public boolean isHashComputed() {
         return hashCode != 0;
-    }
-
-    public <T extends Functor>
-    T apply(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSet(field)) {
-                functor.process(field, doGet(field));
-            }
-        }
-        return functor;
-    }
-
-    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSet(field)) { //  || field.isKeyField()
-                field.acceptValue(functor, doGet(field));
-            }
-        }
-        return functor;
-    }
-
-    public <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
-        for (Field field : getType().getFields()) {
-            final int index = field.getIndex();
-            if (isSetAt(index)) {
-                field.acceptValue(functor, doGet(field), ctx);
-            }
-        }
-        return functor;
     }
 
     public static void throwError(GlobType globType, Field field) {

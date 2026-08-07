@@ -11,6 +11,42 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
 
     Object doGet(Field field);
 
+    boolean isSetAt(int index);
+
+    /**
+     * Looped traversals of the fields of the type. The object generator emits unrolled versions of the
+     * three that override these, unless AsmGlobObjectGenerator.UNROLL_VISITORS is off; the primitive
+     * generator never does, so it always runs these. They live here rather than being copy-pasted into
+     * each AbstractGeneratedGlob32/64 : nothing in them needs per-type bytecode.
+     */
+    default <T extends FieldValues.Functor>
+    T apply(T functor) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                functor.process(field, doGet(field));
+            }
+        }
+        return functor;
+    }
+
+    default <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                field.acceptValue(functor, doGet(field));
+            }
+        }
+        return functor;
+    }
+
+    default <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
+        for (Field field : getType().getFields()) {
+            if (isSetAt(field.getIndex())) {
+                field.acceptValue(functor, doGet(field), ctx);
+            }
+        }
+        return functor;
+    }
+
     // we don't want to add a dependency on any json framework here : we output a json like string here => need help : may be a bad idea
     default void toString(StringBuilder buffer) {
         buffer.append("{ \"_kind\":\"").append(escapeQuote(getType().getName())).append("\"");

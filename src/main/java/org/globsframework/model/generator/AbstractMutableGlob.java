@@ -168,6 +168,15 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
 
     MutableGlob doSet(Field field, Object value);
 
+    void clearSetAt(int index);
+
+    /** doSet(null) first : on the primitive flavour that is what writes the null bit. */
+    default MutableGlob unset(Field field) {
+        doSet(field, null);
+        clearSetAt(field.getIndex());
+        return this;
+    }
+
     default Key getKey() {
         return this;
     }

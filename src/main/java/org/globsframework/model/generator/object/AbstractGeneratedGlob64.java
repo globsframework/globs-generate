@@ -2,10 +2,7 @@ package org.globsframework.model.generator.object;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
-import org.globsframework.core.metamodel.fields.FieldValueVisitor;
-import org.globsframework.core.metamodel.fields.FieldValueVisitorWithContext;
 import org.globsframework.core.model.Key;
-import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.exceptions.ItemNotFound;
 import org.globsframework.model.generator.AbstractMutableGlob;
 
@@ -31,12 +28,6 @@ abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
         return isSetAt(field.getIndex());
     }
 
-    public MutableGlob unset(Field field) {
-        doSet(field, null);
-        clearSetAt(field.getIndex());
-        return this;
-    }
-
     public int hashCode() {
         if (hashCode != 0) {
             return hashCode;
@@ -55,36 +46,6 @@ abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
 
     public boolean isHashComputed() {
         return hashCode != 0;
-    }
-
-    // Looped fallbacks : used only when AsmGlobObjectGenerator.UNROLL_VISITORS is off, the generated
-    // class overrides both otherwise.
-    public <T extends Functor>
-    T apply(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSetAt(field.getIndex())) {
-                functor.process(field, doGet(field));
-            }
-        }
-        return functor;
-    }
-
-    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSetAt(field.getIndex())) {
-                field.acceptValue(functor, doGet(field));
-            }
-        }
-        return functor;
-    }
-
-    public <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
-        for (Field field : getType().getFields()) {
-            if (isSetAt(field.getIndex())) {
-                field.acceptValue(functor, doGet(field), ctx);
-            }
-        }
-        return functor;
     }
 
     public static void throwError(GlobType globType, Field field) {
