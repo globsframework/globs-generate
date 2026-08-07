@@ -40,7 +40,8 @@ public class AsmGlobPrimitiveGenerator {
                     for (Field field : globType.getFields()) {
                         byte[] b = null;
                         if (internalName.equals(AsmAccessorGenerator.getGetAccessorName(globName, field.getIndex()))) {
-                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, true);
+                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, true,
+                                    globType.getFieldCount() <= 32);
                         } else if (internalName.equals(AsmAccessorGenerator.getSetAccessorName(globName, field.getIndex()))) {
                             b = AsmAccessorGenerator.generateSet(globName, getFieldName(field), field, true);
                         }

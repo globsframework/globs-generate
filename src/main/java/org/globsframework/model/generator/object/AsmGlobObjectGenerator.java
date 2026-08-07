@@ -50,7 +50,8 @@ public class AsmGlobObjectGenerator {
                     for (Field field : globType.getFields()) {
                         byte[] b = null;
                         if (internalName.equals(AsmAccessorGenerator.getGetAccessorName(globName, field.getIndex()))) {
-                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, false);
+                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, false,
+                                    globType.getFieldCount() <= 32);
                         } else if (internalName.equals(AsmAccessorGenerator.getSetAccessorName(globName, field.getIndex()))) {
                             b = AsmAccessorGenerator.generateSet(globName, getFieldName(field), field, false);
                         }
@@ -78,9 +79,7 @@ public class AsmGlobObjectGenerator {
             String mes = "Can not generate bytecode for " + globType.describe() + " : " + e.getMessage();
             throw new RuntimeException(mes, e);
         }
-
     }
-
 
     private static String getFieldName(Field field) {
         return COMPILE.matcher(field.getName()).replaceAll("_");

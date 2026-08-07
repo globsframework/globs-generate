@@ -64,12 +64,28 @@ accessor per field, indexed by `Field.getIndex()`, each going through `doGet`/`d
 then generates one class per field and per direction that reads/writes the Glob field directly, and
 `installAccessors` swaps them in — the constructor's table stays as the fallback. `globs.generate.accessors`
 (`AsmAccessorGenerator.GENERATE_ACCESSORS`) turns generation off to A/B the two. Measured on the primitive
-flavour: `getNative` ×1.8, `setNative` ×1.4, String get/set ×1.35 over the `doGet`-based ones.
+flavour (`AccessorPerf`): `getNative` ×1.8, `setNative` ×1.4, String get/set ×1.35, `isSet` ×1.47,
+`isNull` ×1.37 over the `doGet`-based ones.
+
+`isSet`/`isNull` are generated too, overriding `AbstractGeneratedGetAccessor`, which answers them through
+`glob.isSet(field)` (an interface call to `getIndex()`) and, for `isNull`, through a boxing
+`doGet(field) == null`. The generated pair is one `GETFIELD` + mask test per question at a constant index:
+`isSet` reads the `isSet` mask; `isNull` reads the value field and tests it against null on the object
+flavour, and tests the `isNull` mask then the `isSet` one on the primitive flavour — the same two tests the
+generated `get()` makes, so they cannot disagree.
+`GeneratedFactoryActiveTest.generatedIsSetAndIsNullAgreeWithTheGlob` checks both against
+`glob.isSet(field)` / `doGet(field) == null` in all four states (fresh, set, set-to-null, unset) on both
+mask widths, and asserts the two methods are *declared* on the accessor rather than inherited.
 
 Constraints that fall out of generating accessors, all of them load-time failures rather than compile errors:
 
 - **The Glob's value fields are emitted `ACC_PUBLIC`**, not private — a separate accessor class cannot touch
-  a private field, and nestmates would mean emitting `NestMembers`.
+  a private field, and nestmates would mean emitting `NestMembers`. The `isSet`/`isNull` masks of the four
+  `AbstractGeneratedGlob32/64` bases are `public` for the same reason: the accessor classes live in
+  `…model.generated.*` and are not subclasses, so `protected` (or package-private) would be an
+  `IllegalAccessError`.
+- The mask width is the **type's**, not the field's : a type with 40 fields uses the `long` base for all of
+  them, so `generateGet` takes `is32Bit` from `globType.getFieldCount() <= 32`, never from the field index.
 - `AsmAccessorGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS`, unlike the rest of the module, and
   short-circuits `getCommonSuperClass` to `java/lang/Object` because the generated Glob lives in a throwaway
   `ClassLoader` that ASM cannot resolve. The primitive null handling is branchy; hand-computed frames there

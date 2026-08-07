@@ -8,9 +8,11 @@ import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 import org.globsframework.core.model.MutableGlob;
+import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.GlobSerializer;
 import org.globsframework.core.utils.serialization.SerializedOutput;
+import org.globsframework.model.generator.AbstractGlob;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -340,6 +342,81 @@ public class GeneratedFactoryActiveTest {
             }, first, second);
             Assertions.assertEquals(expected, first.toString(), "accept(visitor, c1, c2) on " + service);
             Assertions.assertEquals("0123456", second.toString(), "second context on " + service);
+        }
+    }
+
+    /**
+     * The generated get accessors answer isSet / isNull with a mask read at a constant index instead of
+     * inheriting the field.getIndex() (and, for isNull, boxing doGet) versions of
+     * AbstractGeneratedGetAccessor. They must agree with the Glob itself in every state, on both mask
+     * widths — 10 fields uses the int mask, 45 the long one.
+     */
+    @Test
+    public void generatedIsSetAndIsNullAgreeWithTheGlob() {
+        for (String service : new String[]{
+                "org.globsframework.model.generator.object.GeneratorGlobFactoryService",
+                "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService"}) {
+            for (int fieldCount : new int[]{10, 45}) {
+                String tag = service.contains("object") ? "Obj" : "Prim";
+                MutableGlob glob = instantiate(service, "Mask" + tag + fieldCount, fieldCount);
+                GlobType type = glob.getType();
+                Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+                        "not generated : " + glob.getClass().getName());
+
+                for (Field field : type.getFields()) {
+                    Class<?> accessor = type.getGlobFactory().getGetValueAccessor(field).getClass();
+                    Assertions.assertTrue(accessor.getName().startsWith("org.globsframework.model.generated."),
+                            field.getName() + " get accessor is not generated");
+                    // declared, not inherited : otherwise the mask versions are silently not the ones running
+                    Assertions.assertDoesNotThrow(() -> accessor.getDeclaredMethod("isSet", Glob.class),
+                            field.getName() + " isSet is inherited, not generated");
+                    Assertions.assertDoesNotThrow(() -> accessor.getDeclaredMethod("isNull", Glob.class),
+                            field.getName() + " isNull is inherited, not generated");
+                }
+
+                // never set
+                assertMaskAgrees(glob, "fresh " + tag + fieldCount);
+
+                // set to a real value, one field at a time so the neighbouring bits are checked too
+                for (Field field : type.getFields()) {
+                    type.getGlobFactory().getSetValueAccessor(field).setValue(glob, valueFor(field));
+                    assertMaskAgrees(glob, "after set " + field.getName() + " " + tag + fieldCount);
+                }
+
+                // set, but null
+                for (Field field : type.getFields()) {
+                    type.getGlobFactory().getSetValueAccessor(field).setValue(glob, null);
+                    assertMaskAgrees(glob, "after set null " + field.getName() + " " + tag + fieldCount);
+                }
+
+                // set again, then unset : set bit off, and null again
+                for (Field field : type.getFields()) {
+                    type.getGlobFactory().getSetValueAccessor(field).setValue(glob, valueFor(field));
+                    glob.unset(field);
+                    assertMaskAgrees(glob, "after unset " + field.getName() + " " + tag + fieldCount);
+                }
+            }
+        }
+    }
+
+    private Object valueFor(Field field) {
+        if (field instanceof StringField) {
+            return "v" + field.getIndex();
+        }
+        if (field instanceof IntegerField) {
+            return field.getIndex();
+        }
+        return field.getIndex() * 1.5;
+    }
+
+    /** doGet == null is exactly what the inherited isNull used to answer, so it is the oracle here. */
+    private void assertMaskAgrees(Glob glob, String state) {
+        for (Field field : glob.getType().getFields()) {
+            GlobGetAccessor accessor = glob.getType().getGlobFactory().getGetValueAccessor(field);
+            Assertions.assertEquals(glob.isSet(field), accessor.isSet(glob),
+                    "isSet(" + field.getName() + ") " + state);
+            Assertions.assertEquals(((AbstractGlob) glob).doGet(field) == null, accessor.isNull(glob),
+                    "isNull(" + field.getName() + ") " + state);
         }
     }
 

@@ -75,7 +75,8 @@ public class AccessorPerf {
         GlobType type = builder.build();
 
         Variant variant = new Variant();
-        variant.glob = type.instantiate().set(intField, 1).set(stringField, "x");
+        // outside the Integer cache on purpose : the doGet-based isNull boxes, and a cached 1 would hide it
+        variant.glob = type.instantiate().set(intField, 1_000_000).set(stringField, "x");
         variant.getInt = type.getGlobFactory().getGetAccessor(intField);
         variant.setInt = type.getGlobFactory().getSetAccessor(intField);
         variant.getString = (GlobGetStringAccessor) type.getGlobFactory().getGetValueAccessor(stringField);
@@ -115,6 +116,38 @@ public class AccessorPerf {
     @Benchmark
     public void setNativeDefaultGlob() {
         defaultGlob.setInt.setNative(defaultGlob.glob, 42);
+    }
+
+    // isSet / isNull : a mask read at a constant index on the generated accessor, against
+    // AbstractGeneratedGetAccessor's glob.isSet(field) and doGet(field) == null (which boxes here).
+    @Benchmark
+    public boolean isSetGenerated() {
+        return generated.getInt.isSet(generated.glob);
+    }
+
+    @Benchmark
+    public boolean isSetViaDoGet() {
+        return viaDoGet.getInt.isSet(viaDoGet.glob);
+    }
+
+    @Benchmark
+    public boolean isSetDefaultGlob() {
+        return defaultGlob.getInt.isSet(defaultGlob.glob);
+    }
+
+    @Benchmark
+    public boolean isNullGenerated() {
+        return generated.getInt.isNull(generated.glob);
+    }
+
+    @Benchmark
+    public boolean isNullViaDoGet() {
+        return viaDoGet.getInt.isNull(viaDoGet.glob);
+    }
+
+    @Benchmark
+    public boolean isNullDefaultGlob() {
+        return defaultGlob.getInt.isNull(defaultGlob.glob);
     }
 
     @Benchmark

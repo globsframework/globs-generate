@@ -11,7 +11,9 @@ import org.globsframework.model.generator.AbstractMutableGlob;
 
 abstract public class AbstractGeneratedGlob64 implements AbstractMutableGlob {
     private int hashCode;
-    private long isSet;
+    // public, like the value fields of the generated subclass : the generated accessors GETFIELD the mask
+    // straight out of another package to answer isSet / isNull without a call.
+    public long isSet;
 
     public void setSetAt(int index) {
         isSet |= (1L << index);

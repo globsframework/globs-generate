@@ -103,7 +103,72 @@ public class AsmAccessorGenerator {
         }
     }
 
-    public static byte[] generateGet(String globInternalName, String fieldName, Field field, boolean primitive) {
+    /**
+     * Jumps to {@code target} when the {@code index}th bit of the {@code mask} field of the Glob in slot 1
+     * matches : IFEQ for a clear bit, IFNE for a set one. Leaves the stack empty.
+     */
+    private static void jumpOnMaskBit(MethodVisitor methodVisitor, String globInternalName, String mask,
+                                      int index, boolean is32Bit, int jumpOpcode, Label target) {
+        methodVisitor.visitVarInsn(ALOAD, 1);
+        methodVisitor.visitTypeInsn(CHECKCAST, globInternalName);
+        if (is32Bit) {
+            methodVisitor.visitFieldInsn(GETFIELD, globInternalName, mask, "I");
+            methodVisitor.visitLdcInsn(1 << index);
+            methodVisitor.visitInsn(IAND);
+        } else {
+            methodVisitor.visitFieldInsn(GETFIELD, globInternalName, mask, "J");
+            methodVisitor.visitLdcInsn(1L << index);
+            methodVisitor.visitInsn(LAND);
+            methodVisitor.visitInsn(LCONST_0);
+            methodVisitor.visitInsn(LCMP);
+        }
+        methodVisitor.visitJumpInsn(jumpOpcode, target);
+    }
+
+    private static void returnFalseThenTrue(MethodVisitor methodVisitor, Label trueLabel) {
+        methodVisitor.visitInsn(ICONST_0);
+        methodVisitor.visitInsn(IRETURN);
+        methodVisitor.visitLabel(trueLabel);
+        methodVisitor.visitInsn(ICONST_1);
+        methodVisitor.visitInsn(IRETURN);
+        methodVisitor.visitMaxs(0, 0);
+        methodVisitor.visitEnd();
+    }
+
+    /**
+     * isSet and isNull, overriding the ones AbstractGeneratedGetAccessor answers through field.getIndex()
+     * and — for isNull — through a boxing doGet. Here they are two mask reads on the Glob itself.
+     */
+    private static void generateIsSetAndIsNull(ClassWriter classWriter, String globInternalName, String fieldName,
+                                               Field field, boolean primitive, boolean is32Bit, String fieldDesc) {
+        int index = field.getIndex();
+
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "isSet", "(" + GLOB + ")Z", null, null);
+        methodVisitor.visitCode();
+        Label setLabel = new Label();
+        jumpOnMaskBit(methodVisitor, globInternalName, "isSet", index, is32Bit, IFNE, setLabel);
+        returnFalseThenTrue(methodVisitor, setLabel);
+
+        methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "isNull", "(" + GLOB + ")Z", null, null);
+        methodVisitor.visitCode();
+        Label nullLabel = new Label();
+        if (primitive) {
+            // same two tests as the generated get() : the null bit, then never-set
+            jumpOnMaskBit(methodVisitor, globInternalName, "isNull", index, is32Bit, IFNE, nullLabel);
+            jumpOnMaskBit(methodVisitor, globInternalName, "isSet", index, is32Bit, IFEQ, nullLabel);
+        } else {
+            // object flavour : the field holds the boxed value and unset() writes null into it, which is
+            // the invariant the generated get() already relies on
+            methodVisitor.visitVarInsn(ALOAD, 1);
+            methodVisitor.visitTypeInsn(CHECKCAST, globInternalName);
+            methodVisitor.visitFieldInsn(GETFIELD, globInternalName, fieldName, fieldDesc);
+            methodVisitor.visitJumpInsn(IFNULL, nullLabel);
+        }
+        returnFalseThenTrue(methodVisitor, nullLabel);
+    }
+
+    public static byte[] generateGet(String globInternalName, String fieldName, Field field, boolean primitive,
+                                     boolean is32Bit) {
         AccessorSpec spec = AccessorSpec.of(field);
         String name = getGetAccessorName(globInternalName, field.getIndex());
         String fieldDesc = primitive ? spec.nativeDesc : spec.valueDesc;
@@ -111,6 +176,7 @@ public class AsmAccessorGenerator {
         ClassWriter classWriter = newClassWriter();
         classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, name, null, GET_BASE, new String[]{spec.getInterface});
         generateConstructor(classWriter, GET_BASE);
+        generateIsSetAndIsNull(classWriter, globInternalName, fieldName, field, primitive, is32Bit, fieldDesc);
 
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "get", "(" + GLOB + ")" + spec.valueDesc, null, null);
         methodVisitor.visitCode();
