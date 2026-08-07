@@ -41,7 +41,8 @@ Run :
 public class VisitorUnrollPerf {
     private static final AtomicInteger UNIQUE = new AtomicInteger();
 
-    @Param({"4", "20"})
+    // 40 crosses into AbstractGeneratedGlob64, i.e. the long isSet mask
+    @Param({"4", "20", "40"})
     public int fieldCount;
 
     private Glob unrolled;

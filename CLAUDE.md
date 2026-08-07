@@ -121,20 +121,37 @@ the values of a Glob, so the unrolled form is one `INVOKEINTERFACE` per field �
 branch. The field constants also back the unrolled visitors of the generated Glob, which is why the
 sanitised name (`AsmFactoryGenerator.fieldName`) has to agree between the two generators.
 
-The generated `Glob` extends one of the four hand-written bases in this repo, chosen by field count:
+The generated `Glob` extends one of the four hand-written bases in this repo, chosen by field count. Each is
+now **only the masks**: the field, its `setSetAt`/`isSetAt`/`clearSetAt` (+ `setNull`/`setNotNull`/`isNull`)
+and `isSet(Field)`, all `final`. Everything else was four identical copies and has moved out — `unset` and
+the three looped `apply`/`accept` into `AbstractGlob`/`AbstractMutableGlob`, and `hashCode`/`equals`/
+`toString`/`throwError` into `generator/AbstractGeneratedGlob`, which the four extend (those four are Object
+methods plus a memoized field, so an interface cannot carry them).
 
 - `generator/object/AbstractGeneratedGlob32` / `…64` — `int` / `long` `isSet` mask only.
 - `generator/primitive/AbstractGeneratedGlob32` / `…64` — `isSet` **and** `isNull` masks; `doSet(field, null)`
   routes to a generated private `forceNull` method that writes the type's zero value and flips the null bit.
 
+Keep the mask methods declared in these four, not in the shared base: hoisting them would turn what is a
+`final` call on the generated Glob into a virtual one. That is also why the split is worth its two extra
+classes at all — it is **not** about speed (measured: `isSet` 1279 vs 1259 M ops/s at the two widths, a tie)
+but about the instance footprint. Measured per glob, `int` mask vs `long` mask: primitive flavour 40 → 48
+bytes at 4 fields and 64 → 72 at 9, i.e. always +8; object flavour 40 → 40 at 4 fields, 40 → 48 at 5,
+104 → 104 at 20 — it has a single mask, so `hashCode` fills the header gap and the 4 extra bytes only cross
+the 8-byte rounding for some field counts. Going finer (a `byte`/`short` mask) would buy nothing: the
+rounding eats it.
+
 Generated methods: `doSet`, `doGet` (both a `tableswitch` on `field.getIndex()`), `getType`, `<init>`, plus —
 in the object flavour only — fully unrolled `accept(FieldValueVisitor)`,
 `accept(FieldValueVisitorWithContext, CTX)` (the context is just an extra reference argument forwarded to
-each `visitXxx`) and `apply(FieldValues.Functor)`, with no loop and no `Field` lookup. The primitive flavour
-inherits the looping versions from its base class. Every unrolled method has a looped counterpart in
-`AbstractGeneratedGlob32/64` so `UNROLL_VISITORS=false` stays functional — when adding a generated visitor,
-add the fallback too, otherwise the generated class is simply missing the method and calling it throws
-`AbstractMethodError` at runtime rather than failing to build.
+each `visitXxx`) and `apply(FieldValues.Functor)`, with no loop and no `Field` lookup. Their `isSet` guard is
+emitted by `AsmGlobObjectGenerator.jumpIfNotSet`, a `GETFIELD` on the mask + `IAND`/`LAND` at both widths;
+the `long` one used to call `isSetAt(index)` instead, which cost **12 %** on a 40-field type
+(`VisitorUnrollPerf.serializeAcceptUnrolled` 6.32 → 7.13 M ops/s). It needs 4 stack slots rather than 2,
+hence the `maskStack(is32Bit)` in the three `visitMaxs`. The primitive flavour inherits the looping versions.
+Every unrolled method has a looped counterpart in `AbstractGlob` so `UNROLL_VISITORS=false` stays functional
+— when adding a generated visitor, add the fallback too, otherwise the generated class is simply missing the
+method and calling it throws `AbstractMethodError` at runtime rather than failing to build.
 `AsmGlobObjectGenerator.UNROLL_VISITORS` (property `globs.generate.unrollVisitors`) turns the unrolled pair
 off so the looped fallbacks in the object bases are inherited instead — it exists to A/B the two in one JVM,
 and is read at generation time, so a type built while it is off keeps the looped version for good.
@@ -157,8 +174,9 @@ must be added to both.
 
 `AbstractGlob` / `AbstractMutableGlob` (in `generator/`) are interfaces of `default` methods implementing the
 non-generated half of `Glob`/`MutableGlob`/`Key` (`toString` as JSON-ish text, `matches`, `duplicate`,
-`setValues`, the whole typed `set(XxxField, …)` family delegating to `setObject` → `doSet`). Put behaviour
-that does not need per-type bytecode here, not in the generators.
+`setValues`, `unset`, the looped `apply`/`accept`, the whole typed `set(XxxField, …)` family delegating to
+`setObject` → `doSet`). Put behaviour that does not need per-type bytecode here, not in the generators —
+and when it cannot be a `default` (an Object method, or one needing a field), in `AbstractGeneratedGlob`.
 
 ## Working on the bytecode
 

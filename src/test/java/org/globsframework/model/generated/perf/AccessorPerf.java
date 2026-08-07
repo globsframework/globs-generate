@@ -34,6 +34,7 @@ public class AccessorPerf {
     private static final String PRIMITIVE = "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService";
 
     private Variant generated;
+    private Variant wide;
     private Variant viaDoGet;
     private Variant defaultGlob;
 
@@ -48,6 +49,7 @@ public class AccessorPerf {
     @Setup
     public void setUp() {
         generated = build(PRIMITIVE, true);
+        wide = buildWide();
         viaDoGet = build(PRIMITIVE, false);
         defaultGlob = build(null, true);
 
@@ -58,6 +60,24 @@ public class AccessorPerf {
         if (viaDoGet.getInt.getClass().getName().startsWith("org.globsframework.model.generated.")) {
             throw new IllegalStateException("the fallback variant got generated accessors");
         }
+    }
+
+    // same accessor on field 0, but the type has 40 fields so the Glob uses the long-mask base
+    private Variant buildWide() {
+        System.setProperty("globs.builder", PRIMITIVE);
+        GlobFactoryService.Builder.reset();
+        GlobTypeBuilder builder = GlobTypeBuilderFactory.create("Wide_" + UNIQUE.incrementAndGet());
+        IntegerField intField = builder.declareIntegerField("count");
+        for (int i = 1; i < 40; i++) {
+            builder.declareIntegerField("f" + i);
+        }
+        GlobType type = builder.build();
+        Variant variant = new Variant();
+        variant.glob = type.instantiate().set(intField, 1_000_000);
+        variant.getInt = type.getGlobFactory().getGetAccessor(intField);
+        System.clearProperty("globs.builder");
+        GlobFactoryService.Builder.reset();
+        return variant;
     }
 
     private Variant build(String service, boolean generateAccessors) {
@@ -123,6 +143,16 @@ public class AccessorPerf {
     @Benchmark
     public boolean isSetGenerated() {
         return generated.getInt.isSet(generated.glob);
+    }
+
+    @Benchmark
+    public boolean isSetGenerated64() {
+        return wide.getInt.isSet(wide.glob);
+    }
+
+    @Benchmark
+    public boolean isNullGenerated64() {
+        return wide.getInt.isNull(wide.glob);
     }
 
     @Benchmark

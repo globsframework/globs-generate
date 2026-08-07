@@ -85,6 +85,31 @@ public class AsmGlobObjectGenerator {
         return COMPILE.matcher(field.getName()).replaceAll("_");
     }
 
+    /**
+     * The guard of the unrolled visitors : reads the isSet mask of the Glob in slot 0 and jumps to skip
+     * when the bit of this field is clear. Inlined at both widths — the long one used to go through an
+     * INVOKEVIRTUAL isSetAt(index) for no reason. Costs 4 stack slots instead of 2, hence maskStack.
+     */
+    private static void jumpIfNotSet(MethodVisitor methodVisitor, int id, Field field, boolean is32Bit, Label skip) {
+        methodVisitor.visitVarInsn(ALOAD, 0);
+        if (is32Bit) {
+            methodVisitor.visitFieldInsn(GETFIELD, getGeneratedGlobName(id), "isSet", "I");
+            methodVisitor.visitLdcInsn(1 << field.getIndex());
+            methodVisitor.visitInsn(IAND);
+        } else {
+            methodVisitor.visitFieldInsn(GETFIELD, getGeneratedGlobName(id), "isSet", "J");
+            methodVisitor.visitLdcInsn(1L << field.getIndex());
+            methodVisitor.visitInsn(LAND);
+            methodVisitor.visitInsn(LCONST_0);
+            methodVisitor.visitInsn(LCMP);
+        }
+        methodVisitor.visitJumpInsn(IFEQ, skip);
+    }
+
+    private static int maskStack(boolean is32Bit) {
+        return is32Bit ? 2 : 4;
+    }
+
     public static byte[] generateGlob(int id, GlobType globType) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
@@ -122,17 +147,7 @@ public class AsmGlobObjectGenerator {
             for (int i = 0; i < fields.length; i++) {
                 Label label3 = new Label();
                 Field field = fields[i];
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                if (is32Bit) {
-                    methodVisitor.visitFieldInsn(GETFIELD, getGeneratedGlobName(id), "isSet", "I");
-                    methodVisitor.visitLdcInsn(1 << i);
-                    methodVisitor.visitInsn(IAND);
-                }
-                else {
-                    methodVisitor.visitIntInsn(BIPUSH, field.getIndex());
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, getGeneratedGlobName(id), "isSetAt", "(I)Z", false);
-                }
-                methodVisitor.visitJumpInsn(IFEQ, label3);
+                jumpIfNotSet(methodVisitor, id, field, is32Bit, label3);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitFieldInsn(GETSTATIC, getGeneratedGlobFactoryName(id), getFieldName(field),
                         "Lorg/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name +";");
@@ -150,7 +165,7 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitInsn(ARETURN);
             Label label5 = new Label();
             methodVisitor.visitLabel(label5);
-            methodVisitor.visitMaxs(3, 2);
+            methodVisitor.visitMaxs(Math.max(3, maskStack(is32Bit)), 2);
             methodVisitor.visitEnd();
         }
         if (UNROLL_VISITORS) {
@@ -164,16 +179,7 @@ public class AsmGlobObjectGenerator {
 
             for (Field field : fields) {
                 Label skip = new Label();
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                if (is32Bit) {
-                    methodVisitor.visitFieldInsn(GETFIELD, getGeneratedGlobName(id), "isSet", "I");
-                    methodVisitor.visitLdcInsn(1 << field.getIndex());
-                    methodVisitor.visitInsn(IAND);
-                } else {
-                    methodVisitor.visitIntInsn(BIPUSH, field.getIndex());
-                    methodVisitor.visitMethodInsn(INVOKEVIRTUAL, getGeneratedGlobName(id), "isSetAt", "(I)Z", false);
-                }
-                methodVisitor.visitJumpInsn(IFEQ, skip);
+                jumpIfNotSet(methodVisitor, id, field, is32Bit, skip);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitFieldInsn(GETSTATIC, getGeneratedGlobFactoryName(id), getFieldName(field),
                         "Lorg/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name + ";");
@@ -192,7 +198,7 @@ public class AsmGlobObjectGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 1);
             methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(4, 3);
+            methodVisitor.visitMaxs(Math.max(4, maskStack(is32Bit)), 3);
             methodVisitor.visitEnd();
         }
         if (UNROLL_VISITORS) {
@@ -202,10 +208,7 @@ public class AsmGlobObjectGenerator {
             for (int i = 0; i < fields.length; i++) {
                 Label label3 = new Label();
                 Field field = fields[i];
-                methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitIntInsn(BIPUSH, field.getIndex());
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, getGeneratedGlobName(id), "isSetAt", "(I)Z", false);
-                methodVisitor.visitJumpInsn(IFEQ, label3);
+                jumpIfNotSet(methodVisitor, id, field, is32Bit, label3);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitFieldInsn(GETSTATIC, getGeneratedGlobFactoryName(id), getFieldName(field),
                         "Lorg/globsframework/core/metamodel/fields/" + field.safeAccept(visitor.withFieldType()).name +";");
@@ -220,7 +223,7 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitInsn(ARETURN);
             Label label5 = new Label();
             methodVisitor.visitLabel(label5);
-            methodVisitor.visitMaxs(3, 2);
+            methodVisitor.visitMaxs(Math.max(3, maskStack(is32Bit)), 2);
             methodVisitor.visitEnd();
         }
 
