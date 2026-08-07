@@ -2,6 +2,7 @@ package org.globsframework.model.generated.primitive;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.model.FieldValues;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
@@ -130,25 +131,46 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
 
 
 
-//    public <T extends FieldValues.Functor>
-//    T apply(T functor) throws Exception {
-//        if (isSetAt(0)) {
-//            functor.process(GeneratedGlobFactory.f1, isNull(0) ? null : i1);
-//        }
-//        if (isSetAt(1)) {
-//            functor.process(GeneratedGlobFactory.f2, isNull(0) ? null : ia2);
-//        }
-//        return functor;
-//    }
-//
-//    public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
-//        for (Field field : getType().getFields()) {
-//            if (isSet(field)) { //  || field.isKeyField()
-//                field.accept(functor, doGet(field));
-//            }
-//        }
-//        return functor;
-//    }
+    // The unrolled visitors. Two tests per field -- the isSet mask, then the isNull one -- and the call
+    // written out in both branches rather than a ternary, so that in bytecode both branch targets are
+    // reached with an empty stack and every frame stays F_SAME.
+    // accept(FieldValueVisitorWithContext, CTX) is the same with the context forwarded as a last argument.
+
+    public final <T extends FieldValueVisitor> T accept(T functor) throws Exception {
+        if ((isSet & (1 << 0)) != 0) {
+            if ((isNull & (1 << 0)) != 0) {
+                functor.visitInteger(GeneratedGlobPrimitiveFactory.f1, null);
+            } else {
+                functor.visitInteger(GeneratedGlobPrimitiveFactory.f1, Integer.valueOf(i1));
+            }
+        }
+        if ((isSet & (1 << 1)) != 0) {
+            if ((isNull & (1 << 1)) != 0) {
+                functor.visitIntegerArray(GeneratedGlobPrimitiveFactory.f2, null);
+            } else {
+                functor.visitIntegerArray(GeneratedGlobPrimitiveFactory.f2, ia1);
+            }
+        }
+        return functor;
+    }
+
+    public final <T extends FieldValues.Functor> T apply(T functor) throws Exception {
+        if ((isSet & (1 << 0)) != 0) {
+            if ((isNull & (1 << 0)) != 0) {
+                functor.process(GeneratedGlobPrimitiveFactory.f1, null);
+            } else {
+                functor.process(GeneratedGlobPrimitiveFactory.f1, Integer.valueOf(i1));
+            }
+        }
+        if ((isSet & (1 << 1)) != 0) {
+            if ((isNull & (1 << 1)) != 0) {
+                functor.process(GeneratedGlobPrimitiveFactory.f2, null);
+            } else {
+                functor.process(GeneratedGlobPrimitiveFactory.f2, ia1);
+            }
+        }
+        return functor;
+    }
 
 
     public MutableGlob doSet(Field field, Object value) {

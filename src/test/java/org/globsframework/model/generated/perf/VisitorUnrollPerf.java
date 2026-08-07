@@ -14,20 +14,21 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.GlobSerializer;
 import org.globsframework.core.utils.serialization.SerializedOutput;
-import org.globsframework.model.generator.object.AsmGlobObjectGenerator;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 /*
-Does unrolling the field traversal inside the generated Glob pay off ?
+What the unrolled field traversal inside the generated Glob is worth. Both flavours emit it now, so the
+comparison is object vs primitive vs core's DefaultGlob -- the looped arm is gone with the
+UNROLL_VISITORS switch. The looped versions it used to measure still live in AbstractGlob, as the
+fallback for anything that does not generate the method.
 
-  accept*        : glob.accept(FieldValueVisitor) -- unrolled (generated) vs looped (base class)
-  serializeLoop* : GlobSerializer.writeKnowGlob -- core's serializer, which drives the loop itself
-                   over type.getFields() and never calls glob.accept : both variants must tie.
+  serializeLoop*  : GlobSerializer.writeKnowGlob -- core's serializer, which drives the loop itself
+                    over type.getFields() and never calls glob.accept.
   serializeAccept*: the same output produced through glob.accept, i.e. what serialization would cost
-                   if it were routed through the (unrollable) visitor.
+                    if it were routed through the unrolled visitor.
 
 Run :
   mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -45,8 +46,8 @@ public class VisitorUnrollPerf {
     @Param({"4", "20", "40"})
     public int fieldCount;
 
-    private Glob unrolled;
-    private Glob looped;
+    private Glob object;
+    private Glob primitive;
     private Glob defaultGlob;
 
     private ByteBufferSerializationOutput output;
@@ -56,13 +57,13 @@ public class VisitorUnrollPerf {
 
     @Setup
     public void setUp() {
-        unrolled = build("unrolled", "org.globsframework.model.generator.object.GeneratorGlobFactoryService", true);
-        looped = build("looped", "org.globsframework.model.generator.object.GeneratorGlobFactoryService", false);
-        defaultGlob = build("default", null, true);
+        object = build("object", "org.globsframework.model.generator.object.GeneratorGlobFactoryService");
+        primitive = build("primitive", "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService");
+        defaultGlob = build("default", null);
 
-        if (unrolled.getClass() == defaultGlob.getClass() || looped.getClass() == defaultGlob.getClass()) {
-            throw new IllegalStateException("generation is inert : unrolled=" + unrolled.getClass()
-                    + " looped=" + looped.getClass() + " default=" + defaultGlob.getClass());
+        if (object.getClass() == defaultGlob.getClass() || primitive.getClass() == defaultGlob.getClass()) {
+            throw new IllegalStateException("generation is inert : object=" + object.getClass()
+                    + " primitive=" + primitive.getClass() + " default=" + defaultGlob.getClass());
         }
 
         output = new ByteBufferSerializationOutput(new byte[1024 * 1024]);
@@ -71,15 +72,14 @@ public class VisitorUnrollPerf {
         serializing = new SerializingVisitor();
     }
 
-    /** Builds a type while the given factory service and unroll setting are active, and forces the
-     *  bytecode to be generated now (the glob class is only emitted on the first create). */
-    private Glob build(String tag, String service, boolean unroll) {
+    /** Builds a type while the given factory service is active, and forces the bytecode to be generated
+     *  now (the glob class is only emitted on the first create). */
+    private Glob build(String tag, String service) {
         if (service == null) {
             System.clearProperty("globs.builder");
         } else {
             System.setProperty("globs.builder", service);
         }
-        AsmGlobObjectGenerator.UNROLL_VISITORS = unroll;
         GlobFactoryService.Builder.reset();
 
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("Bench_" + tag + "_" + UNIQUE.incrementAndGet());
@@ -103,24 +103,23 @@ public class VisitorUnrollPerf {
         }
 
         System.clearProperty("globs.builder");
-        AsmGlobObjectGenerator.UNROLL_VISITORS = true;
         GlobFactoryService.Builder.reset();
         return glob;
     }
 
-    // ---- glob.accept : the path unrolling actually changes -------------------------------------
+    // ---- glob.accept, counting only : the traversal on its own ---------------------------------
 //
 //    @Benchmark
-//    public int acceptUnrolled() {
+//    public int acceptObject() {
 //        counting.count = 0;
-//        unrolled.safeAccept(counting);
+//        object.safeAccept(counting);
 //        return counting.count;
 //    }
 //
 //    @Benchmark
-//    public int acceptLooped() {
+//    public int acceptPrimitive() {
 //        counting.count = 0;
-//        looped.safeAccept(counting);
+//        primitive.safeAccept(counting);
 //        return counting.count;
 //    }
 //
@@ -134,16 +133,16 @@ public class VisitorUnrollPerf {
     // ---- serialization as it is written today : drives the loop itself, ignores glob.accept ----
 //
 //    @Benchmark
-//    public int serializeLoopUnrolled() {
+//    public int serializeLoopObject() {
 //        output.reset();
-//        serializer.writeKnowGlob(unrolled);
+//        serializer.writeKnowGlob(object);
 //        return output.position();
 //    }
 //
 //    @Benchmark
-//    public int serializeLoopLooped() {
+//    public int serializeLoopPrimitive() {
 //        output.reset();
-//        serializer.writeKnowGlob(looped);
+//        serializer.writeKnowGlob(primitive);
 //        return output.position();
 //    }
 //
@@ -157,18 +156,18 @@ public class VisitorUnrollPerf {
     // ---- the same bytes, produced through glob.accept ------------------------------------------
 
     @Benchmark
-    public int serializeAcceptUnrolled() {
+    public int serializeAcceptObject() {
         output.reset();
         serializing.output = output;
-        unrolled.safeAccept(serializing);
+        object.safeAccept(serializing);
         return output.position();
     }
 
     @Benchmark
-    public int serializeAcceptLooped() {
+    public int serializeAcceptPrimitive() {
         output.reset();
         serializing.output = output;
-        looped.safeAccept(serializing);
+        primitive.safeAccept(serializing);
         return output.position();
     }
 

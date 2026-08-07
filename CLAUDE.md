@@ -142,27 +142,39 @@ the 8-byte rounding for some field counts. Going finer (a `byte`/`short` mask) w
 rounding eats it.
 
 Generated methods: `doSet`, `doGet` (both a `tableswitch` on `field.getIndex()`), `getType`, `<init>`, plus —
-in the object flavour only — fully unrolled `accept(FieldValueVisitor)`,
-`accept(FieldValueVisitorWithContext, CTX)` (the context is just an extra reference argument forwarded to
-each `visitXxx`) and `apply(FieldValues.Functor)`, with no loop and no `Field` lookup. Their `isSet` guard is
-emitted by `AsmGlobObjectGenerator.jumpIfNotSet`, a `GETFIELD` on the mask + `IAND`/`LAND` at both widths;
-the `long` one used to call `isSetAt(index)` instead, which cost **12 %** on a 40-field type
-(`VisitorUnrollPerf.serializeAcceptUnrolled` 6.32 → 7.13 M ops/s). It needs 4 stack slots rather than 2,
-hence the `maskStack(is32Bit)` in the three `visitMaxs`. The primitive flavour inherits the looping versions.
-Every unrolled method has a looped counterpart in `AbstractGlob` so `UNROLL_VISITORS=false` stays functional
-— when adding a generated visitor, add the fallback too, otherwise the generated class is simply missing the
-method and calling it throws `AbstractMethodError` at runtime rather than failing to build.
-`AsmGlobObjectGenerator.UNROLL_VISITORS` (property `globs.generate.unrollVisitors`) turns the unrolled pair
-off so the looped fallbacks in the object bases are inherited instead — it exists to A/B the two in one JVM,
-and is read at generation time, so a type built while it is off keeps the looped version for good.
+**in both flavours** — fully unrolled `accept(FieldValueVisitor)`, `accept(FieldValueVisitorWithContext, CTX)`
+(the context is just an extra reference argument forwarded to each `visitXxx`) and `apply(FieldValues.Functor)`,
+with no loop and no `Field` lookup. There is no switch to turn that off: `UNROLL_VISITORS` /
+`globs.generate.unrollVisitors` is gone, the unrolled form is the only one generated.
 
-Measured with `VisitorUnrollPerf` (JMH, object flavour, all fields set): unrolling `accept` is worth
-**×5.6 at 4 fields and ×10.8 at 20** over the looped version. It does **not** speed up serialization as
-written, because `GlobSerializer` drives its own loop over `type.getFields()` and never calls `glob.accept` —
-measured, the three implementations tie within noise there. Routing serialization through `accept` instead
-(same bytes, asserted by `GeneratedFactoryActiveTest.serializingThroughAcceptEmitsTheSameBytes`) is ~1.6-1.9×
-faster than the current serializer *only* when the unrolled version is generated; on the looped version it is
-1.5-1.7× slower. The two changes only pay off together.
+The two flavours emit a different guard:
+
+- object — `AsmGlobObjectGenerator.jumpIfNotSet`, one `GETFIELD` on the mask + `IAND`/`LAND` at both widths;
+  the `long` one used to call `isSetAt(index)` instead, which cost **12 %** on a 40-field type
+  (`VisitorUnrollPerf` 6.32 → 7.13 M ops/s). It needs 4 stack slots rather than 2, hence `maskStack(is32Bit)`
+  in the three `visitMaxs`.
+- primitive — `AsmGlobPrimitiveGenerator.generateUnrolledVisitor`, the `isSet` mask test *and* the `isNull`
+  one, then the `visitXxx` call **written out in both branches** rather than pushing a value computed by a
+  ternary. That is what keeps every branch target reachable with an empty stack, so all the frames are
+  `F_SAME` and the `ClassWriter` can stay at flags `0`. The boxed value comes from the same
+  `GenerateGetVisitor` that `doGet` uses.
+
+The looped versions still live in `AbstractGlob` as the fallback for anything that does not generate the
+method — when adding a generated visitor, add the fallback too, otherwise the generated class is simply
+missing the method and calling it throws `AbstractMethodError` at runtime rather than failing to build.
+Conversely, a generated method with a **wrong descriptor** silently leaves the interface default in place and
+everything still behaves: `GeneratedFactoryActiveTest.bothFlavoursEmitUnrolledVisitorsThatVisitTheSetFields`
+therefore asserts the three are *declared* on the generated class, on both flavours and both mask widths, on
+top of checking they visit exactly the set fields (value, explicit null and untouched all covered).
+
+Measured with `VisitorUnrollPerf` (JMH, all fields set), unrolled against the looped version it replaced:
+**×5.6 at 4 fields and ×10.8 at 20** on the object flavour, **×2.4 / ×3.0 / ×3.3 at 4 / 20 / 40 fields** on
+the primitive one (22.3 → 52.3, 4.40 → 13.1, 1.66 → 5.51 M ops/s). Unrolling does **not** speed up
+serialization as written, because `GlobSerializer` drives its own loop over `type.getFields()` and never
+calls `glob.accept` — measured, the implementations tie within noise there. Routing serialization through
+`accept` instead (same bytes, asserted by
+`GeneratedFactoryActiveTest.serializingThroughAcceptEmitsTheSameBytes`) is ~1.6-1.9× faster than the current
+serializer; on the looped version it was 1.5-1.7× slower. The two changes only pay off together.
 
 `FieldVisitorToVisitName` is the naming table: one `FieldVisitor` that, depending on the `SpecificName` it was
 primed with (`withFieldType()`, `withOutputType()`, `withWithNativeType()`, `withMethodVisitor()`, …), yields

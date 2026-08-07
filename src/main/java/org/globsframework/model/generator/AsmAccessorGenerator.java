@@ -23,7 +23,8 @@ import static org.objectweb.asm.Opcodes.*;
 public class AsmAccessorGenerator {
     /**
      * Experiment switch : when false the factory keeps the doGet/doSet-based accessors built by
-     * AbstractGeneratedGlobFactory's constructor. Read at generation time, like UNROLL_VISITORS.
+     * AbstractGeneratedGlobFactory's constructor. Read at generation time, so a type built while it is off
+     * keeps the doGet-based accessors for good.
      */
     public static boolean GENERATE_ACCESSORS = Boolean.parseBoolean(
             System.getProperty("globs.generate.accessors", "true"));

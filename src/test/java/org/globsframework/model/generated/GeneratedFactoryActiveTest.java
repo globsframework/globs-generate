@@ -4,6 +4,7 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.model.FieldValues;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
@@ -342,6 +343,81 @@ public class GeneratedFactoryActiveTest {
             }, first, second);
             Assertions.assertEquals(expected, first.toString(), "accept(visitor, c1, c2) on " + service);
             Assertions.assertEquals("0123456", second.toString(), "second context on " + service);
+        }
+    }
+
+    /**
+     * Both flavours now emit the three unrolled visitors, so both must visit exactly the set fields, with
+     * the same values doGet would return — including the fields that are set *to null*, which is the case
+     * the primitive flavour has to read out of its isNull mask. Checked on both mask widths.
+     * <p>
+     * The declared-method assertions are the point : a wrong descriptor would leave the interface default
+     * in place, the visited list would still come out right, and nothing would tell us the generated
+     * methods are dead.
+     */
+    @Test
+    public void bothFlavoursEmitUnrolledVisitorsThatVisitTheSetFields() throws Exception {
+        for (String service : new String[]{
+                "org.globsframework.model.generator.object.GeneratorGlobFactoryService",
+                "org.globsframework.model.generator.primitive.GeneratorGlobFactoryService"}) {
+            for (int fieldCount : new int[]{9, 45}) {
+                String tag = service.contains("object") ? "Obj" : "Prim";
+                MutableGlob glob = instantiate(service, "Unroll" + tag + fieldCount, fieldCount);
+                GlobType type = glob.getType();
+                Class<?> globClass = glob.getClass();
+
+                Assertions.assertDoesNotThrow(() -> globClass.getDeclaredMethod("accept", FieldValueVisitor.class),
+                        "accept(FieldValueVisitor) is not generated on " + service);
+                Assertions.assertDoesNotThrow(
+                        () -> globClass.getDeclaredMethod("accept", FieldValueVisitorWithContext.class, Object.class),
+                        "accept(FieldValueVisitorWithContext, CTX) is not generated on " + service);
+                Assertions.assertDoesNotThrow(
+                        () -> globClass.getDeclaredMethod("apply", FieldValues.Functor.class),
+                        "apply(Functor) is not generated on " + service);
+
+                // a value, an explicit null and an untouched field, so all three states are covered
+                for (Field field : type.getFields()) {
+                    switch (field.getIndex() % 3) {
+                        case 0 -> type.getGlobFactory().getSetValueAccessor(field).setValue(glob, valueFor(field));
+                        case 1 -> type.getGlobFactory().getSetValueAccessor(field).setValue(glob, null);
+                        default -> {
+                        }
+                    }
+                }
+
+                StringBuilder expected = new StringBuilder();
+                for (Field field : type.getFields()) {
+                    if (glob.isSet(field)) {
+                        expected.append(field.getName()).append('=')
+                                .append(((AbstractGlob) glob).doGet(field)).append(' ');
+                    }
+                }
+
+                StringBuilder visited = new StringBuilder();
+                glob.safeAccept(new FieldValueVisitor.AbstractFieldValueVisitor() {
+                    public void notManaged(Field field, Object value) {
+                        visited.append(field.getName()).append('=').append(value).append(' ');
+                    }
+                });
+                Assertions.assertEquals(expected.toString(), visited.toString(),
+                        "accept on " + service + " / " + fieldCount + " fields");
+
+                StringBuilder applied = new StringBuilder();
+                glob.safeApply((field, value) -> applied.append(field.getName()).append('=').append(value).append(' '));
+                Assertions.assertEquals(expected.toString(), applied.toString(),
+                        "apply on " + service + " / " + fieldCount + " fields");
+
+                StringBuilder withContext = new StringBuilder();
+                StringBuilder context = new StringBuilder("ctx");
+                glob.safeAccept(new FieldValueVisitorWithContext.AbstractFieldValueVisitor<StringBuilder>() {
+                    public void notManaged(Field field, Object value, StringBuilder ctx) {
+                        Assertions.assertSame(context, ctx, "the context must be forwarded as is");
+                        withContext.append(field.getName()).append('=').append(value).append(' ');
+                    }
+                }, context);
+                Assertions.assertEquals(expected.toString(), withContext.toString(),
+                        "accept(visitor, ctx) on " + service + " / " + fieldCount + " fields");
+            }
         }
     }
 

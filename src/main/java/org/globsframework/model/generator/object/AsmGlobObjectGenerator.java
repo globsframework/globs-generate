@@ -23,11 +23,6 @@ import static org.objectweb.asm.Opcodes.*;
 
 public class AsmGlobObjectGenerator {
     public static final Pattern COMPILE = Pattern.compile("[^\\w]");
-    // Experiment switch : when false, accept/apply are not emitted and the looped versions of
-    // AbstractGeneratedGlob32/64 are inherited instead. Read at generation time, so a type built while
-    // it is off keeps the looped implementation for the lifetime of the JVM.
-    public static boolean UNROLL_VISITORS = Boolean.parseBoolean(
-            System.getProperty("globs.generate.unrollVisitors", "true"));
     static AtomicInteger ID = new AtomicInteger();
     // The generated factory's <clinit> calls getType(id) to find the type it was generated for : the entry
     // lives only for the duration of create, so nothing here keeps a GlobType alive.
@@ -140,7 +135,7 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
         }
-        if (UNROLL_VISITORS) {
+        {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "accept", "(Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;)Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;", "<T::Lorg/globsframework/core/metamodel/fields/FieldValueVisitor;>(TT;)TT;", new String[] { "java/lang/Exception" });
             methodVisitor.visitCode();
 
@@ -168,7 +163,7 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitMaxs(Math.max(3, maskStack(is32Bit)), 2);
             methodVisitor.visitEnd();
         }
-        if (UNROLL_VISITORS) {
+        {
             // <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx)
             // the context is just an extra reference argument forwarded to every visit call
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "accept",
@@ -201,7 +196,7 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitMaxs(Math.max(4, maskStack(is32Bit)), 3);
             methodVisitor.visitEnd();
         }
-        if (UNROLL_VISITORS) {
+        {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "apply", "(Lorg/globsframework/core/model/FieldValues$Functor;)Lorg/globsframework/core/model/FieldValues$Functor;", "<T::Lorg/globsframework/core/model/FieldValues$Functor;>(TT;)TT;", new String[] { "java/lang/Exception" });
             methodVisitor.visitCode();
 

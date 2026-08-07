@@ -98,6 +98,110 @@ public class AsmGlobPrimitiveGenerator {
         return COMPILE.matcher(field.getName()).replaceAll("_");
     }
 
+    private static final String FIELDS = "org/globsframework/core/metamodel/fields/";
+
+    /** Jumps to target when the index-th bit of the mask of the Glob in slot 0 matches : IFEQ clear, IFNE set. */
+    private static void jumpOnMaskBit(MethodVisitor methodVisitor, int id, String mask, int index,
+                                      boolean is32Bit, int jumpOpcode, Label target) {
+        methodVisitor.visitVarInsn(ALOAD, 0);
+        if (is32Bit) {
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), mask, "I");
+            methodVisitor.visitLdcInsn(1 << index);
+            methodVisitor.visitInsn(IAND);
+        } else {
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), mask, "J");
+            methodVisitor.visitLdcInsn(1L << index);
+            methodVisitor.visitInsn(LAND);
+            methodVisitor.visitInsn(LCONST_0);
+            methodVisitor.visitInsn(LCMP);
+        }
+        methodVisitor.visitJumpInsn(jumpOpcode, target);
+    }
+
+    /**
+     * visitor (slot 1), the field constant, then the boxed field value or null, then the call.
+     * The GETSTATIC always uses the concrete *Field type; the call descriptor is the declared one, which
+     * for FieldValues.Functor.process is (Field, Object) rather than the typed pair of a FieldValueVisitor.
+     */
+    private static void emitVisit(MethodVisitor methodVisitor, int id, Field field, FieldVisitorToVisitName visitor,
+                                  Signature signature, boolean nullValue) {
+        String constDesc = "L" + FIELDS + field.safeAccept(visitor.withFieldType()).name + ";";
+        methodVisitor.visitVarInsn(ALOAD, 1);
+        methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), getFieldName(field), constDesc);
+        if (nullValue) {
+            methodVisitor.visitInsn(ACONST_NULL);
+        } else {
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            field.safeAccept(new GenerateGetVisitor(methodVisitor, id));
+        }
+        if (signature.withContext) {
+            methodVisitor.visitVarInsn(ALOAD, 2);
+        }
+        String fieldParam = signature.fieldParamDesc == null ? constDesc : signature.fieldParamDesc;
+        String valueParam = signature.valueParamDesc == null
+                ? field.safeAccept(visitor.withUserType()).name : signature.valueParamDesc;
+        methodVisitor.visitMethodInsn(INVOKEINTERFACE, signature.itf,
+                signature.methodName == null ? field.safeAccept(visitor.withMethodVisitor()).name : signature.methodName,
+                "(" + fieldParam + valueParam + (signature.withContext ? "Ljava/lang/Object;" : "") + ")V", true);
+    }
+
+    /** What the emitted call looks like : null means "the one this field maps to". */
+    private record Signature(String itf, String methodName, String fieldParamDesc, String valueParamDesc,
+                             boolean withContext) {
+    }
+
+    /**
+     * One of the three unrolled visitors : per field, the isSet mask test, then the isNull one, then
+     * visitXxx with the boxed value or with null. The call is emitted once per branch on purpose — both
+     * branch targets are then reached with an empty stack, so every frame is F_SAME and the ClassWriter
+     * can keep its flags at 0 rather than paying for COMPUTE_FRAMES.
+     */
+    private static void generateUnrolledVisitor(ClassWriter classWriter, int id, Field[] fields, boolean is32Bit,
+                                                FieldVisitorToVisitName visitor, String name, String descriptor,
+                                                String genericSignature, Signature signature) {
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, name, descriptor,
+                genericSignature, new String[]{"java/lang/Exception"});
+        methodVisitor.visitCode();
+        for (Field field : fields) {
+            Label skip = new Label();
+            Label nullValue = new Label();
+            jumpOnMaskBit(methodVisitor, id, "isSet", field.getIndex(), is32Bit, IFEQ, skip);
+            jumpOnMaskBit(methodVisitor, id, "isNull", field.getIndex(), is32Bit, IFNE, nullValue);
+            emitVisit(methodVisitor, id, field, visitor, signature, false);
+            methodVisitor.visitJumpInsn(GOTO, skip);
+            methodVisitor.visitLabel(nullValue);
+            methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+            emitVisit(methodVisitor, id, field, visitor, signature, true);
+            methodVisitor.visitLabel(skip);
+            methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        }
+        methodVisitor.visitVarInsn(ALOAD, 1);
+        methodVisitor.visitInsn(ARETURN);
+        // 4 : visitor + field + a long/double field being boxed, and the long mask test needs as much
+        methodVisitor.visitMaxs(4, signature.withContext() ? 3 : 2);
+        methodVisitor.visitEnd();
+    }
+
+    /** accept(FieldValueVisitor), accept(FieldValueVisitorWithContext, CTX) and apply(FieldValues.Functor). */
+    private static void generateUnrolledVisitors(ClassWriter classWriter, int id, Field[] fields, boolean is32Bit,
+                                                 FieldVisitorToVisitName visitor) {
+        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "accept",
+                "(L" + FIELDS + "FieldValueVisitor;)L" + FIELDS + "FieldValueVisitor;",
+                "<T::L" + FIELDS + "FieldValueVisitor;>(TT;)TT;",
+                new Signature(FIELDS + "FieldValueVisitor", null, null, null, false));
+
+        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "accept",
+                "(L" + FIELDS + "FieldValueVisitorWithContext;Ljava/lang/Object;)L" + FIELDS + "FieldValueVisitorWithContext;",
+                "<CTX:Ljava/lang/Object;T::L" + FIELDS + "FieldValueVisitorWithContext<TCTX;>;>(TT;TCTX;)TT;",
+                new Signature(FIELDS + "FieldValueVisitorWithContext", null, null, null, true));
+
+        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "apply",
+                "(Lorg/globsframework/core/model/FieldValues$Functor;)Lorg/globsframework/core/model/FieldValues$Functor;",
+                "<T::Lorg/globsframework/core/model/FieldValues$Functor;>(TT;)TT;",
+                new Signature("org/globsframework/core/model/FieldValues$Functor", "process",
+                        "L" + FIELDS + "Field;", "Ljava/lang/Object;", false));
+    }
+
     public static byte[] generateGlob(int id, GlobType globType) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
@@ -127,6 +231,7 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
         }
+        generateUnrolledVisitors(classWriter, id, fields, globType.getFieldCount() <= 32, visitor);
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doSet",
                     "(Lorg/globsframework/core/metamodel/fields/Field;Ljava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);

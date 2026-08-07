@@ -14,10 +14,10 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     boolean isSetAt(int index);
 
     /**
-     * Looped traversals of the fields of the type. The object generator emits unrolled versions of the
-     * three that override these, unless AsmGlobObjectGenerator.UNROLL_VISITORS is off; the primitive
-     * generator never does, so it always runs these. They live here rather than being copy-pasted into
-     * each AbstractGeneratedGlob32/64 : nothing in them needs per-type bytecode.
+     * Looped traversals of the fields of the type. Both generators emit unrolled versions that override
+     * all three, so on a generated Glob these never run — they are the fallback that keeps the abstract
+     * bases valid, and what a Glob whose generator does not emit one would fall back to. They live here
+     * rather than being copy-pasted into each AbstractGeneratedGlob32/64 : nothing needs per-type bytecode.
      */
     default <T extends FieldValues.Functor>
     T apply(T functor) throws Exception {
