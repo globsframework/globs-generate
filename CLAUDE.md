@@ -59,16 +59,25 @@ to the factory generation, and treat a green suite without it as meaningless.
 
 **Accessors** live on `AbstractGeneratedGlobFactory`, the superclass both generators now emit (it replaced
 core's `DefaultGlobFactory`, whose accessors cast the glob to `AbstractDefaultGlob` and therefore threw
-`ClassCastException` on a generated glob). Its constructor walks the metamodel once and stores a typed
-accessor per field, indexed by `Field.getIndex()`, each going through `doGet`/`doSet`. `AsmAccessorGenerator`
-then generates one class per field and per direction that reads/writes the Glob field directly, and
-`installAccessors` swaps them in, **for every field, unconditionally** — `globs.generate.accessors` /
-`AsmAccessorGenerator.GENERATE_ACCESSORS` is gone, like `UNROLL_VISITORS`. What the constructor builds is
-therefore only what answers between construction and installation; measured against it while the switch
-still existed, the generated ones were worth, on the primitive flavour (`AccessorPerf`): `getNative` ×1.8,
-`setNative` ×1.4, String get/set ×1.35, `isSet` ×1.47, `isNull` ×1.37. That table is ~300 lines and two
-allocations per field of startup work that nothing reads afterwards — collapsing it is the obvious next
-cleanup, but it needs the factory to answer sanely before `installAccessors` has run.
+`ClassCastException` on a generated glob). `AsmAccessorGenerator` generates one class per field and per
+direction, reading and writing the Glob field directly, and the factory's constructor fills its
+`Field.getIndex()`-indexed table with them — pulling them one at a time from the `AccessorProvider` it is
+handed. There is **one** kind of accessor and **one** phase: no `installAccessors` second pass, no
+`globs.generate.accessors` switch, and no window during which the factory answers with something that is
+about to be replaced. The two tables are final and complete when the constructor returns.
+
+Against the `doGet`/`doSet`-based accessors this replaced (measured on the primitive flavour with
+`AccessorPerf`, while the switch still existed): `getNative` ×1.8, `setNative` ×1.4, String get/set ×1.35,
+`isSet` ×1.47, `isNull` ×1.37.
+
+The provider has to come from outside because it closes over the throwaway `ClassLoader` holding the
+accessor classes, which only the generator has: it travels through the same per-id channel as the
+`GlobType` (`AsmGlob*Generator.getAccessors(id)`, read by the generated `<init>` — see below). One
+consequence to keep in mind: the accessor classes, and through them the generated Glob class, are now
+loaded from **inside the factory's constructor**, itself inside `loadClass(factoryName)` on that same
+loader. That re-entrancy is fine (same thread, and the factory's `<clinit>` has already completed, so the
+Glob's `GETSTATIC` on `TYPE` resolves), but it is the kind of thing that breaks as a
+`ClassCircularityError` at runtime rather than as a compile error.
 
 `isSet`/`isNull` are generated too, overriding `AbstractGeneratedGetAccessor`, which answers them through
 `glob.isSet(field)` (an interface call to `getIndex()`) and, for `isNull`, through a boxing
@@ -96,7 +105,7 @@ Constraints that fall out of generating accessors, all of them load-time failure
 - In `setNative`, a `long`/`double` argument occupies **two** local slots (2 and 3), so the cast Glob goes to
   slot 4. Getting this wrong is a `VerifyError: Bad local variable type`.
 - The factory is built from `DefaultGlobType`'s constructor, so `field.getGlobType()` is still **null** while
-  accessors are installed: `checkedIndex` tolerates it, and its error message uses `getName()` rather than
+  the accessors are built: `checkedIndex` tolerates it, and its error message uses `getName()` rather than
   `getFullName()`, which would NPE on the null back-reference.
 
 ## How generation works
@@ -106,15 +115,18 @@ Constraints that fall out of generating accessors, all of them load-time failure
 1. take a fresh `id` from a static `AtomicInteger`, and build a throwaway child `ClassLoader` whose
    `findClass` emits two classes on demand: `…generated/{object,primitive}/GeneratedGlob_<id>` and
    `GeneratedGlobFactory_<id>`;
-2. **register the `GlobType` under that `id`** in the generator's `PENDING_TYPES` map; the generated
-   factory's `<clinit>` calls `AsmGlob*Generator.getType(<id>)` and copies the result into its own `TYPE`.
+2. **register the `GlobType` and an `AccessorProvider` under that `id`** in the generator's `PENDING` map.
+   The generated factory's `<clinit>` calls `AsmGlob*Generator.getType(<id>)` and copies the result into its
+   own `TYPE`; its `<init>` calls `getAccessors(<id>)` and passes it straight to the super constructor.
    Keyed by id, so `create` is *not* `synchronized` and concurrent generation of two types is safe
    (`GeneratedFactoryActiveTest.concurrentGenerationWiresEachFactoryToItsOwnType` pins it — it was a
    single-slot static `TYPE` channel before, which is what the `synchronized` used to protect). The entry is
-   removed in a `finally`, so the map never keeps a `GlobType` alive; `getType` throws
-   `IllegalStateException` if a generated class is somehow initialized outside of `create`.
-3. load the factory class and instantiate it (**instantiating** is what triggers the `<clinit>` above, while
-   the map entry is still there), then install the generated accessors into it.
+   removed in a `finally`, so the map keeps alive neither a `GlobType` nor the throwaway `ClassLoader` the
+   provider closes over; both getters throw `IllegalStateException` if a generated class is somehow
+   initialized outside of `create`.
+3. load the factory class and instantiate it — and that is all. **Instantiating** is what triggers both the
+   `<clinit>` and the `<init>` above, while the map entry is still there, and the constructor pulling its
+   accessors out of the provider is what loads the accessor classes and the Glob class.
 
 The factory side is emitted by the shared `AsmFactoryGenerator`, used by both flavours: a `public static
 final` constant per field (`IntegerField myField;`, resolved in `<clinit>` through `TYPE.findField(name)`)

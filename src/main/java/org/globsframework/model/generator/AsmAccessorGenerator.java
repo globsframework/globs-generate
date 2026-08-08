@@ -1,8 +1,6 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
-import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
 import org.objectweb.asm.ClassWriter;
@@ -28,24 +26,33 @@ public class AsmAccessorGenerator {
     private static final String FIELD_DESC = "Lorg/globsframework/core/metamodel/fields/Field;";
 
     /**
-     * Loads the accessor classes generated for this type and hands them to the factory, replacing every one
-     * of the doGet/doSet-based ones its constructor installed.
+     * The accessors of one generated type : each call loads the class the throwaway ClassLoader emits for
+     * that field and direction. Called once per field per direction, from the factory's constructor.
+     * <p>
+     * A failure here is a generation bug, not something a caller can act on, hence the unchecked wrapper :
+     * the constructor of a GlobFactory cannot sensibly declare ReflectiveOperationException.
      */
-    public static void installAccessors(GlobFactory factory, GlobType globType, ClassLoader loader,
-                                        String globInternalName) throws ReflectiveOperationException {
-        AbstractGeneratedGlobFactory generated = (AbstractGeneratedGlobFactory) factory;
-        for (Field field : globType.getFields()) {
-            Object get = newAccessor(loader, getGetAccessorName(globInternalName, field.getIndex()), field);
-            Object set = newAccessor(loader, getSetAccessorName(globInternalName, field.getIndex()), field);
-            generated.installAccessors(field, (GlobGetAccessor) get, (GlobSetAccessor) set);
-        }
-    }
+    public static AccessorProvider providerFor(ClassLoader loader, String globInternalName) {
+        return new AccessorProvider() {
+            public GlobGetAccessor get(Field field) {
+                return (GlobGetAccessor) newAccessor(getGetAccessorName(globInternalName, field.getIndex()), field);
+            }
 
-    private static Object newAccessor(ClassLoader loader, String internalName, Field field)
-            throws ReflectiveOperationException {
-        return loader.loadClass(internalName.replace('/', '.'))
-                .getDeclaredConstructor(Field.class)
-                .newInstance(field);
+            public GlobSetAccessor set(Field field) {
+                return (GlobSetAccessor) newAccessor(getSetAccessorName(globInternalName, field.getIndex()), field);
+            }
+
+            private Object newAccessor(String internalName, Field field) {
+                try {
+                    return loader.loadClass(internalName.replace('/', '.'))
+                            .getDeclaredConstructor(Field.class)
+                            .newInstance(field);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException("Can not build the generated accessor " + internalName
+                                               + " for " + field.getName(), e);
+                }
+            }
+        };
     }
 
     public static String getGetAccessorName(String globInternalName, int index) {

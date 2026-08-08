@@ -3,6 +3,7 @@ package org.globsframework.model.generator.primitive;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.model.GlobFactory;
+import org.globsframework.model.generator.AccessorProvider;
 import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.objectweb.asm.FieldVisitor;
@@ -19,9 +20,13 @@ import static org.objectweb.asm.Opcodes.*;
 public class AsmGlobPrimitiveGenerator {
     public static final Pattern COMPILE = Pattern.compile("[^\\w]");
     static AtomicInteger ID = new AtomicInteger();
-    // The generated factory's <clinit> calls getType(id) to find the type it was generated for : the entry
-    // lives only for the duration of create, so nothing here keeps a GlobType alive.
-    private static final Map<Integer, GlobType> PENDING_TYPES = new ConcurrentHashMap<>();
+    // What the generated factory reads while it is being built : its <clinit> calls getType(id) and its
+    // <init> getAccessors(id). The entry lives only for the duration of create, so nothing here keeps a
+    // GlobType -- or the throwaway ClassLoader the provider closes over -- alive.
+    private static final Map<Integer, Pending> PENDING = new ConcurrentHashMap<>();
+
+    private record Pending(GlobType type, AccessorProvider accessors) {
+    }
 
     public static GlobFactory create(GlobType globType) {
         try {
@@ -52,19 +57,18 @@ public class AsmGlobPrimitiveGenerator {
                     return super.findClass(name);
                 }
             };
-            PENDING_TYPES.put(id, globType);
+            PENDING.put(id, new Pending(globType,
+                    AsmAccessorGenerator.providerFor(bytesClassloader, GenerateSetNullVisitor.getGlobName(id))));
             try {
-                // newInstance triggers <clinit>, which is the only thing reading PENDING_TYPES
-                GlobFactory factory = (GlobFactory) bytesClassloader.loadClass(getGlobFactoryName(id))
+                // newInstance triggers <clinit> then <init>, the two that read PENDING : the accessor
+                // classes, and through them the Glob class, are loaded from inside that constructor.
+                return (GlobFactory) bytesClassloader.loadClass(getGlobFactoryName(id))
                         .getDeclaredConstructor()
                         .newInstance();
-                AsmAccessorGenerator.installAccessors(factory, globType, bytesClassloader,
-                        GenerateSetNullVisitor.getGlobName(id));
-                return factory;
             } catch (Throwable e) {
                 throw new RuntimeException("fail ", e);
             } finally {
-                PENDING_TYPES.remove(id);
+                PENDING.remove(id);
             }
         } catch (Throwable e) {
             String mes = "Can not generate bytecode for " + globType.describe() + " : " + e.getMessage();
@@ -78,12 +82,21 @@ public class AsmGlobPrimitiveGenerator {
      * Replaces the former static TYPE single-slot channel, so create no longer has to be synchronized.
      */
     public static GlobType getType(int id) {
-        GlobType globType = PENDING_TYPES.get(id);
-        if (globType == null) {
-            throw new IllegalStateException("No GlobType registered for generated factory " + id
+        return pending(id).type();
+    }
+
+    /** Called from the generated factory's {@code <init>}, and handed straight to the super constructor. */
+    public static AccessorProvider getAccessors(int id) {
+        return pending(id).accessors();
+    }
+
+    private static Pending pending(int id) {
+        Pending pending = PENDING.get(id);
+        if (pending == null) {
+            throw new IllegalStateException("Nothing registered for generated factory " + id
                                             + " : the generated class was initialized outside of create.");
         }
-        return globType;
+        return pending;
     }
 
     private static String getGlobFactoryName(int id) {
@@ -433,9 +446,13 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", "<init>", "(Lorg/globsframework/core/metamodel/GlobType;)V", false);
+            methodVisitor.visitLdcInsn(id);
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
+                    "getAccessors", "(I)Lorg/globsframework/model/generator/AccessorProvider;", false);
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
+                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;)V", false);
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(2, 1);
+            methodVisitor.visitMaxs(3, 1);
             methodVisitor.visitEnd();
         }
         {

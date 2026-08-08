@@ -17,9 +17,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /*
 Bytecode accessors (direct GETFIELD / PUTFIELD on the generated Glob) against core's DefaultGlob, on the
-primitive flavour. The doGet / doSet based arm is gone with the GENERATE_ACCESSORS switch : those accessors
-still exist, in AbstractGeneratedGlobFactory's constructor, but nothing keeps them any more -- every one of
-them is replaced by installAccessors.
+primitive flavour. The doGet / doSet based arm is gone with the GENERATE_ACCESSORS switch, and so are the
+accessors it measured : the factory is built with the generated ones and has no other kind.
 
 Run :
   mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
