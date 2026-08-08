@@ -21,14 +21,6 @@ import static org.objectweb.asm.Opcodes.*;
  * ASM cannot resolve — no frame merge in the emitted methods needs a precise common supertype.
  */
 public class AsmAccessorGenerator {
-    /**
-     * Experiment switch : when false the factory keeps the doGet/doSet-based accessors built by
-     * AbstractGeneratedGlobFactory's constructor. Read at generation time, so a type built while it is off
-     * keeps the doGet-based accessors for good.
-     */
-    public static boolean GENERATE_ACCESSORS = Boolean.parseBoolean(
-            System.getProperty("globs.generate.accessors", "true"));
-
     private static final String GET_BASE = "org/globsframework/model/generator/AbstractGeneratedGetAccessor";
     private static final String SET_BASE = "org/globsframework/model/generator/AbstractGeneratedSetAccessor";
     private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
@@ -36,14 +28,11 @@ public class AsmAccessorGenerator {
     private static final String FIELD_DESC = "Lorg/globsframework/core/metamodel/fields/Field;";
 
     /**
-     * Loads the accessor classes generated for this type and hands them to the factory, replacing the
-     * doGet/doSet-based ones its constructor installed.
+     * Loads the accessor classes generated for this type and hands them to the factory, replacing every one
+     * of the doGet/doSet-based ones its constructor installed.
      */
     public static void installAccessors(GlobFactory factory, GlobType globType, ClassLoader loader,
                                         String globInternalName) throws ReflectiveOperationException {
-        if (!GENERATE_ACCESSORS) {
-            return;
-        }
         AbstractGeneratedGlobFactory generated = (AbstractGeneratedGlobFactory) factory;
         for (Field field : globType.getFields()) {
             Object get = newAccessor(loader, getGetAccessorName(globInternalName, field.getIndex()), field);

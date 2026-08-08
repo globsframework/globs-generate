@@ -9,8 +9,9 @@ import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
  * implements the typed get() (plus getNative() where it pays) by reading the Glob field directly, and
  * overrides isSet/isNull with a mask read at a constant index.
  * <p>
- * The two below are the fallback used when generation is off (globs.generate.accessors=false) : they go
- * through field.getIndex(), and isNull through a doGet that boxes on the primitive flavour.
+ * The two below are what the subclass overrides : they go through field.getIndex(), and isNull through a
+ * doGet that boxes on the primitive flavour. Nothing keeps them now that generation is unconditional, but
+ * they are what a subclass that stopped emitting the pair would silently fall back to.
  * <p>
  * getValue() is deliberately NOT implemented here : each typed accessor interface provides it as a default
  * that forwards to its own get(), and a concrete method in this class would win over that default.

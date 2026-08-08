@@ -62,10 +62,13 @@ core's `DefaultGlobFactory`, whose accessors cast the glob to `AbstractDefaultGl
 `ClassCastException` on a generated glob). Its constructor walks the metamodel once and stores a typed
 accessor per field, indexed by `Field.getIndex()`, each going through `doGet`/`doSet`. `AsmAccessorGenerator`
 then generates one class per field and per direction that reads/writes the Glob field directly, and
-`installAccessors` swaps them in — the constructor's table stays as the fallback. `globs.generate.accessors`
-(`AsmAccessorGenerator.GENERATE_ACCESSORS`) turns generation off to A/B the two. Measured on the primitive
-flavour (`AccessorPerf`): `getNative` ×1.8, `setNative` ×1.4, String get/set ×1.35, `isSet` ×1.47,
-`isNull` ×1.37 over the `doGet`-based ones.
+`installAccessors` swaps them in, **for every field, unconditionally** — `globs.generate.accessors` /
+`AsmAccessorGenerator.GENERATE_ACCESSORS` is gone, like `UNROLL_VISITORS`. What the constructor builds is
+therefore only what answers between construction and installation; measured against it while the switch
+still existed, the generated ones were worth, on the primitive flavour (`AccessorPerf`): `getNative` ×1.8,
+`setNative` ×1.4, String get/set ×1.35, `isSet` ×1.47, `isNull` ×1.37. That table is ~300 lines and two
+allocations per field of startup work that nothing reads afterwards — collapsing it is the obvious next
+cleanup, but it needs the factory to answer sanely before `installAccessors` has run.
 
 `isSet`/`isNull` are generated too, overriding `AbstractGeneratedGetAccessor`, which answers them through
 `glob.isSet(field)` (an interface call to `getIndex()`) and, for `isNull`, through a boxing

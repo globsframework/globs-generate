@@ -44,8 +44,9 @@ public abstract class AbstractGeneratedGlobFactory implements GlobFactory {
 
     /**
      * Replaces the doGet/doSet-based accessor of one field with the bytecode-generated one, which reads and
-     * writes the Glob field directly. Called by the generators right after the factory is instantiated; the
-     * table built by the constructor stays in place as a fallback for any field left uninstalled.
+     * writes the Glob field directly. Called by the generators for every field right after the factory is
+     * instantiated, so in practice the whole table built by the constructor is replaced; what the
+     * constructor puts there is only what answers between construction and installation.
      */
     public void installAccessors(Field field, GlobGetAccessor getAccessor, GlobSetAccessor setAccessor) {
         int index = checkedIndex(field);

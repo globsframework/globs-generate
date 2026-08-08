@@ -11,14 +11,15 @@ import org.globsframework.core.model.globaccessor.get.GlobGetIntAccessor;
 import org.globsframework.core.model.globaccessor.get.GlobGetStringAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetIntAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetStringAccessor;
-import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.openjdk.jmh.annotations.*;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 /*
-Bytecode accessors (direct GETFIELD / PUTFIELD on the generated Glob) against the doGet / doSet based ones
-built by AbstractGeneratedGlobFactory, and against core's DefaultGlob, on the primitive flavour.
+Bytecode accessors (direct GETFIELD / PUTFIELD on the generated Glob) against core's DefaultGlob, on the
+primitive flavour. The doGet / doSet based arm is gone with the GENERATE_ACCESSORS switch : those accessors
+still exist, in AbstractGeneratedGlobFactory's constructor, but nothing keeps them any more -- every one of
+them is replaced by installAccessors.
 
 Run :
   mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -35,7 +36,6 @@ public class AccessorPerf {
 
     private Variant generated;
     private Variant wide;
-    private Variant viaDoGet;
     private Variant defaultGlob;
 
     static class Variant {
@@ -48,17 +48,13 @@ public class AccessorPerf {
 
     @Setup
     public void setUp() {
-        generated = build(PRIMITIVE, true);
+        generated = build(PRIMITIVE);
         wide = buildWide();
-        viaDoGet = build(PRIMITIVE, false);
-        defaultGlob = build(null, true);
+        defaultGlob = build(null);
 
         String generatedName = generated.getInt.getClass().getName();
         if (!generatedName.startsWith("org.globsframework.model.generated.")) {
             throw new IllegalStateException("accessors are not generated : " + generatedName);
-        }
-        if (viaDoGet.getInt.getClass().getName().startsWith("org.globsframework.model.generated.")) {
-            throw new IllegalStateException("the fallback variant got generated accessors");
         }
     }
 
@@ -80,13 +76,12 @@ public class AccessorPerf {
         return variant;
     }
 
-    private Variant build(String service, boolean generateAccessors) {
+    private Variant build(String service) {
         if (service == null) {
             System.clearProperty("globs.builder");
         } else {
             System.setProperty("globs.builder", service);
         }
-        AsmAccessorGenerator.GENERATE_ACCESSORS = generateAccessors;
         GlobFactoryService.Builder.reset();
 
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("Acc_" + UNIQUE.incrementAndGet());
@@ -103,7 +98,6 @@ public class AccessorPerf {
         variant.setString = (GlobSetStringAccessor) type.getGlobFactory().getSetValueAccessor(stringField);
 
         System.clearProperty("globs.builder");
-        AsmAccessorGenerator.GENERATE_ACCESSORS = true;
         GlobFactoryService.Builder.reset();
         return variant;
     }
@@ -111,11 +105,6 @@ public class AccessorPerf {
     @Benchmark
     public int getNativeGenerated() {
         return generated.getInt.getNative(generated.glob);
-    }
-
-    @Benchmark
-    public int getNativeViaDoGet() {
-        return viaDoGet.getInt.getNative(viaDoGet.glob);
     }
 
     @Benchmark
@@ -129,17 +118,12 @@ public class AccessorPerf {
     }
 
     @Benchmark
-    public void setNativeViaDoGet() {
-        viaDoGet.setInt.setNative(viaDoGet.glob, 42);
-    }
-
-    @Benchmark
     public void setNativeDefaultGlob() {
         defaultGlob.setInt.setNative(defaultGlob.glob, 42);
     }
 
-    // isSet / isNull : a mask read at a constant index on the generated accessor, against
-    // AbstractGeneratedGetAccessor's glob.isSet(field) and doGet(field) == null (which boxes here).
+    // isSet / isNull : a mask read at a constant index on the generated accessor. The 64 pair is the same
+    // accessor on the same field of a 40-field type, i.e. the long mask, to check the two widths tie.
     @Benchmark
     public boolean isSetGenerated() {
         return generated.getInt.isSet(generated.glob);
@@ -156,11 +140,6 @@ public class AccessorPerf {
     }
 
     @Benchmark
-    public boolean isSetViaDoGet() {
-        return viaDoGet.getInt.isSet(viaDoGet.glob);
-    }
-
-    @Benchmark
     public boolean isSetDefaultGlob() {
         return defaultGlob.getInt.isSet(defaultGlob.glob);
     }
@@ -168,11 +147,6 @@ public class AccessorPerf {
     @Benchmark
     public boolean isNullGenerated() {
         return generated.getInt.isNull(generated.glob);
-    }
-
-    @Benchmark
-    public boolean isNullViaDoGet() {
-        return viaDoGet.getInt.isNull(viaDoGet.glob);
     }
 
     @Benchmark
@@ -186,8 +160,8 @@ public class AccessorPerf {
     }
 
     @Benchmark
-    public String getStringViaDoGet() {
-        return viaDoGet.getString.get(viaDoGet.glob);
+    public String getStringDefaultGlob() {
+        return defaultGlob.getString.get(defaultGlob.glob);
     }
 
     @Benchmark
@@ -196,7 +170,8 @@ public class AccessorPerf {
     }
 
     @Benchmark
-    public void setStringViaDoGet() {
-        viaDoGet.setString.set(viaDoGet.glob, "y");
+    public void setStringDefaultGlob() {
+        defaultGlob.setString.set(defaultGlob.glob, "y");
     }
+
 }
