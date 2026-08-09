@@ -7,6 +7,7 @@ import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
 import org.globsframework.model.generator.AbstractGeneratedGlobFactory;
 import org.globsframework.model.generator.AccessorProvider;
+import org.globsframework.model.generator.DoGetAccessorProvider;
 import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.globsframework.model.generator.FieldVisitorToVisitName;
@@ -34,6 +35,14 @@ public class AsmGlobObjectGenerator {
     }
 
     public static GlobFactory create(GlobType globType) {
+        return create(globType, true);
+    }
+
+    /**
+     * @param generateAccessors when false the factory gets the doGet/doSet-based accessors instead of one
+     *                          generated class per field and direction. See GenerationOption.
+     */
+    public static GlobFactory create(GlobType globType, boolean generateAccessors) {
         try {
             int id = ID.incrementAndGet();
             ClassLoader bytesClassloader = new ClassLoader(AsmGlobObjectGenerator.class.getClassLoader()) {
@@ -62,8 +71,9 @@ public class AsmGlobObjectGenerator {
                     return super.findClass(name);
                 }
             };
-            PENDING.put(id, new Pending(globType,
-                    AsmAccessorGenerator.providerFor(bytesClassloader, getGeneratedGlobName(id))));
+            PENDING.put(id, new Pending(globType, generateAccessors
+                    ? AsmAccessorGenerator.providerFor(bytesClassloader, getGeneratedGlobName(id))
+                    : new DoGetAccessorProvider()));
             try {
                 // newInstance triggers <clinit> then <init>, the two that read PENDING : the accessor
                 // classes, and through them the Glob class, are loaded from inside that constructor.

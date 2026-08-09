@@ -9,7 +9,7 @@ dedicated `Glob` implementation class per `GlobType`, so that a `Glob`'s values 
 (`private String name;`) instead of the `Object[]` of core's `DefaultGlob`. It plugs into core through the
 `GlobFactoryService` SPI — nothing else in the module is meant to be called directly.
 
-It depends on `org.globsframework:globs` 5.8-SNAPSHOT (see the workspace-level `CLAUDE.md` for how modules
+It depends on `org.globsframework:globs` 5.11-SNAPSHOT (see the workspace-level `CLAUDE.md` for how modules
 resolve each other) and on `org.ow2.asm:asm` / `asm-util`. Because it tracks a core *snapshot*, a core change
 that touches `Glob`/`MutableGlob`/`Field` lands here first: `mvn install` in `globsframework/`, then rebuild
 this module.
@@ -50,7 +50,46 @@ Both fall back to core's `DefaultGlobFactory` above **64 fields**. Tests set the
 `GlobFactoryService.Builder.reset()` — the service is cached, so the reset is mandatory when switching
 flavours inside a JVM (see `AbstractAsmGeneratorTest`).
 
-**Activation fails silently.** The property is only half of it: `GlobType.instantiate()` calls
+### Per-type choice
+
+Whichever service is installed only sets the **default**. A type carrying the `GeneratedOption` annotation
+(`generator/annotations/`, the usual `GeneratedOption` + `GeneratedOption_` pair, listed in
+`AllGenerateAnnotations`) gets what it asks for instead — including the other flavour, or nothing at all:
+
+```java
+GlobTypeBuilder builder = GlobTypeBuilderFactory.create("MyType");
+builder.addAnnotation(GeneratedOption.primitive(false));   // primitive Glob, doGet-based accessors
+```
+
+| Setting | Annotation field | Property when unset | Values |
+| --- | --- | --- | --- |
+| what to generate | `mode` | `globs.generate.mode` | `none` \| `object` \| `primitive` |
+| generate the accessors | `accessors` | `globs.generate.accessors` | `true` \| `false` |
+
+`GenerationOption.resolve` merges the two **field by field**: `GeneratedOption.primitive()` pins the flavour
+and still leaves the accessors to the deployment, because the annotation's unset ≠ false. `none` makes the
+service return `null`, which is how a `GlobFactoryService` says "not mine" — core then falls back to
+`DefaultGlobFactoryService`, i.e. exactly an unconfigured JVM. Without accessor generation the factory is
+filled by `DoGetAccessorProvider` instead; the Glob itself is still generated. An unknown mode throws rather
+than defaulting.
+
+Reading that annotation runs **inside `DefaultGlobType`'s constructor**, which constrains it hard:
+
+- it needs core ≥ **5.11**, where the constructor stores its annotations before asking for the factory. On
+  5.10 the container is still null there — the annotation is invisible and the option silently inert;
+- nothing reachable from `getFactory` may **build a GlobType or initialize an annotation class**, on pain of
+  nesting a type construction inside another one during the bootstrap of core's own annotation types. That
+  is why `GenerationOption` matches the annotation by *type name* and reads its fields by *name*, through
+  compile-time String constants that do not load `GeneratedOption` — see the comment there for what that
+  buys and what the `UNIQUE_KEY` form would rely on instead.
+
+**Activation fails silently**, and so does the annotation — ignoring it just means the default applies and
+the glob still works, which is why every assertion in `GeneratedOptionTest` is on the *class* of what came
+out. `GeneratedFactoryBootstrapTest` covers the other half: it starts a JVM with `globs.builder` on the
+command line, the configuration the module actually ships in, where the first type built in the process is
+one of core's own annotation types.
+
+The property is only half of it: `GlobType.instantiate()` calls
 `getGlobFactory().create(context)`, so the generated factory must override `create(Object)` — an emitted
 no-arg `create()` is simply never called and the inherited `DefaultGlobFactory.create(Object)` returns a core
 `DefaultGlob` instead. Nothing throws. `GeneratedFactoryActiveTest` exists to catch exactly that: it asserts

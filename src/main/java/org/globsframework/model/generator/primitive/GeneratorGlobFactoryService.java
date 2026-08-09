@@ -1,20 +1,15 @@
 package org.globsframework.model.generator.primitive;
 
-import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.metamodel.impl.DefaultGlobFactory;
-import org.globsframework.core.model.GlobFactory;
-import org.globsframework.core.model.GlobFactoryService;
+import org.globsframework.model.generator.AbstractGeneratorGlobFactoryService;
+import org.globsframework.model.generator.GenerationOption;
 
-// set propertty globs.builder to org.globsframework.model.generator.primitive.GeneratorGlobFactoryService
-// to activate
+/**
+ * Set globs.builder to org.globsframework.model.generator.primitive.GeneratorGlobFactoryService to make the
+ * primitive flavour the default. Per-type overrides go through the GeneratedOption annotation.
+ */
+public class GeneratorGlobFactoryService extends AbstractGeneratorGlobFactoryService {
 
-public class GeneratorGlobFactoryService implements GlobFactoryService {
-
-    public GlobFactory getFactory(GlobType type) {
-        if (type.getFieldCount() <= 64) {
-            return AsmGlobPrimitiveGenerator.create(type);
-        } else {
-            return new DefaultGlobFactory(type);
-        }
+    public GeneratorGlobFactoryService() {
+        super(GenerationOption.Mode.PRIMITIVE);
     }
 }
