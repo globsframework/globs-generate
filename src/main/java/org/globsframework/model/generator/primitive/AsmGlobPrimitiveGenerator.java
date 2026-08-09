@@ -6,7 +6,9 @@ import org.globsframework.core.model.GlobFactory;
 import org.globsframework.model.generator.AccessorProvider;
 import org.globsframework.model.generator.DoGetAccessorProvider;
 import org.globsframework.model.generator.AsmAccessorGenerator;
+import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
+import org.globsframework.model.generator.GenerateCaller;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -26,7 +28,7 @@ public class AsmGlobPrimitiveGenerator {
     // GlobType -- or the throwaway ClassLoader the provider closes over -- alive.
     private static final Map<Integer, Pending> PENDING = new ConcurrentHashMap<>();
 
-    private record Pending(GlobType type, AccessorProvider accessors) {
+    private record Pending(GlobType type, AccessorProvider accessors, GenerateCaller callers) {
     }
 
     public static GlobFactory create(GlobType globType) {
@@ -68,7 +70,9 @@ public class AsmGlobPrimitiveGenerator {
             };
             PENDING.put(id, new Pending(globType, generateAccessors
                     ? AsmAccessorGenerator.providerFor(bytesClassloader, GenerateSetNullVisitor.getGlobName(id))
-                    : new DoGetAccessorProvider()));
+                    : new DoGetAccessorProvider(),
+                    AsmCallerGenerator.generatorFor(bytesClassloader, GenerateSetNullVisitor.getGlobName(id),
+                            globType, true)));
             try {
                 // newInstance triggers <clinit> then <init>, the two that read PENDING : the accessor
                 // classes, and through them the Glob class, are loaded from inside that constructor.
@@ -98,6 +102,11 @@ public class AsmGlobPrimitiveGenerator {
     /** Called from the generated factory's {@code <init>}, and handed straight to the super constructor. */
     public static AccessorProvider getAccessors(int id) {
         return pending(id).accessors();
+    }
+
+    /** Called from the generated factory's {@code <init>} too, and handed straight to the super constructor. */
+    public static GenerateCaller getCallerGenerator(int id) {
+        return pending(id).callers();
     }
 
     private static Pending pending(int id) {
@@ -459,10 +468,13 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitLdcInsn(id);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
                     "getAccessors", "(I)Lorg/globsframework/model/generator/AccessorProvider;", false);
+            methodVisitor.visitLdcInsn(id);
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
+                    "getCallerGenerator", "(I)Lorg/globsframework/model/generator/GenerateCaller;", false);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
-                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;)V", false);
+                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/model/generator/GenerateCaller;)V", false);
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(3, 1);
+            methodVisitor.visitMaxs(4, 1);
             methodVisitor.visitEnd();
         }
         {

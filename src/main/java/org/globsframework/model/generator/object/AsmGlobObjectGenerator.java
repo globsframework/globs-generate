@@ -9,8 +9,10 @@ import org.globsframework.model.generator.AbstractGeneratedGlobFactory;
 import org.globsframework.model.generator.AccessorProvider;
 import org.globsframework.model.generator.DoGetAccessorProvider;
 import org.globsframework.model.generator.AsmAccessorGenerator;
+import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.globsframework.model.generator.FieldVisitorToVisitName;
+import org.globsframework.model.generator.GenerateCaller;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -31,7 +33,7 @@ public class AsmGlobObjectGenerator {
     // GlobType -- or the throwaway ClassLoader the provider closes over -- alive.
     private static final Map<Integer, Pending> PENDING = new ConcurrentHashMap<>();
 
-    private record Pending(GlobType type, AccessorProvider accessors) {
+    private record Pending(GlobType type, AccessorProvider accessors, GenerateCaller callers) {
     }
 
     public static GlobFactory create(GlobType globType) {
@@ -73,7 +75,8 @@ public class AsmGlobObjectGenerator {
             };
             PENDING.put(id, new Pending(globType, generateAccessors
                     ? AsmAccessorGenerator.providerFor(bytesClassloader, getGeneratedGlobName(id))
-                    : new DoGetAccessorProvider()));
+                    : new DoGetAccessorProvider(),
+                    AsmCallerGenerator.generatorFor(bytesClassloader, getGeneratedGlobName(id), globType, false)));
             try {
                 // newInstance triggers <clinit> then <init>, the two that read PENDING : the accessor
                 // classes, and through them the Glob class, are loaded from inside that constructor.
@@ -368,6 +371,11 @@ public class AsmGlobObjectGenerator {
         return pending(id).accessors();
     }
 
+    /** Called from the generated factory's {@code <init>} too, and handed straight to the super constructor. */
+    public static GenerateCaller getCallerGenerator(int id) {
+        return pending(id).callers();
+    }
+
     private static Pending pending(int id) {
         Pending pending = PENDING.get(id);
         if (pending == null) {
@@ -412,10 +420,13 @@ public class AsmGlobObjectGenerator {
             methodVisitor.visitLdcInsn(id);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/object/AsmGlobObjectGenerator",
                     "getAccessors", "(I)Lorg/globsframework/model/generator/AccessorProvider;", false);
+            methodVisitor.visitLdcInsn(id);
+            methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/object/AsmGlobObjectGenerator",
+                    "getCallerGenerator", "(I)Lorg/globsframework/model/generator/GenerateCaller;", false);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
-                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;)V", false);
+                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/model/generator/GenerateCaller;)V", false);
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(3, 1);
+            methodVisitor.visitMaxs(4, 1);
             methodVisitor.visitEnd();
         }
         {

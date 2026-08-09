@@ -28,7 +28,8 @@ mvn -o install                                # publish locally for downstream m
 Online resolution needs `mvn -s settings.xml …` with `$GH_MAVEN_REGISTRY_USER` /
 `$GH_MAVEN_REGISTRY_ACCESS_TOKEN` (this is what the GitHub workflow runs).
 
-The JMH benchmark `SerializerPerf` (glob serialization vs kryo) has no `exec` binding; run it by hand:
+The JMH benchmarks in `generated/perf` (`SerializerPerf` glob serialization vs kryo, `AccessorPerf`,
+`VisitorUnrollPerf`, `CallerPerf`) have no `exec` binding; run them by hand:
 
 ```bash
 mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -146,6 +147,68 @@ Constraints that fall out of generating accessors, all of them load-time failure
 - The factory is built from `DefaultGlobType`'s constructor, so `field.getGlobType()` is still **null** while
   the accessors are built: `checkedIndex` tolerates it, and its error message uses `getName()` rather than
   `getFullName()`, which would NPE on the null back-reference.
+
+## Generated callers
+
+The second thing a generated type offers, and the only part of this module a downstream repo calls directly.
+`AbstractGeneratedGlobFactory` implements **`GlobGenerateFactory`** (`GlobFactory` + `GenerateCaller`), so the
+way in is a cast:
+
+```java
+GeneratedFunctionCaller<Out, Void> caller = type.getGlobFactory() instanceof GlobGenerateFactory generate
+        ? generate.create(field -> functionFor(field))   // GetFieldValueFunction, one call per field
+        : null;                                          // not generated : see callerFor below
+caller.call(glob, out, null);                            // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
+```
+
+but the cast is not what a downstream module should write. **`GenerateCaller.callerFor(type, functions)`** does
+it and falls back to a `DefaultFunctionCaller` — the plain loop over the same function table, through
+`Glob.getValue` — for a type that has no generated class (module not installed, `mode none`, or more than 64
+fields). Same behaviour, same order, same isSet/isNull/value, so the caller keeps one code path and only the
+speed changes; `theLoopedCallerAndTheGeneratedOneAgree` is what holds the two to that.
+
+`AsmCallerGenerator` emits, per `create` call, a class with one `public static final FieldValueFunction` per
+field (`fn_<index>`, filled in `<clinit>` from `getFunctions(id)`) and a `call` unrolled over them. The point
+is **not** saving the loop: a `static final` read is a JIT constant, so each `INVOKEINTERFACE call` sees a
+single receiver and inlines, where the one call site of a hand-written loop sees every function of every
+field of every type and stays megamorphic. That is what `globs-bin-serialisation` and `globs-grpc` pay today.
+
+Measured with `CallerPerf` (JMH, all fields set, the same four function classes on every arm), against the
+`DefaultFunctionCaller` fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
+(18.5 → 86.8, 3.29 → 13.6, 1.35 → 6.69 M ops/s) and **×4.2 / ×4.4 / ×4.0** on the primitive one
+(18.1 → 76.0, 3.25 → 14.4, 1.32 → 5.34). A hand-rolled loop over a `GlobGetAccessor` table plus a
+`FieldValueFunction` table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
+0.96 object), so there is nothing to lose in adopting `callerFor` even for the types that fall back.
+
+Consequences of that design, all deliberate:
+
+- **a class per `create`, not per type**. Two callers over the same type hold different functions; sharing
+  the class would put them back on the same call sites. So `create` belongs to the setup phase of a codec,
+  and each caller costs one class in metaspace (in a child `ClassLoader` of the Glob's, thrown away with it).
+- the caller **reads the Glob's public value fields and masks directly**, so `call` starts with a `CHECKCAST`
+  to the generated Glob class: a Glob of that type from another factory is a `ClassCastException`. Same bet
+  the generated accessors already make.
+- it must therefore be **loaded by a child of the throwaway loader** holding the Glob class, which only the
+  generator has — hence the `GenerateCaller` travelling to `AbstractGeneratedGlobFactory`'s constructor
+  through the `PENDING` map, exactly like the `AccessorProvider` next to it.
+- `isSet` is `(isSet >>> index) & 1` and, on the primitive flavour, `isNull` is `((isNull | ~isSet) >>> index)
+  & 1` — branchless, and saying the same thing as the Glob: `isNull` is what `doGet` answers null for, so a
+  field that was never set is `isSet false, isNull true, value null`. On the object flavour `isNull` is the
+  value field being null, which holds because `unset` does `doSet(field, null)` first.
+- **the value is boxed**, since `FieldValueFunction<T, D, E>` is generic. The box normally dies in escape
+  analysis once the monomorphic call inlines, but it is a real allocation whenever it does not; native
+  variants of the interface would be the way out if that ever shows up in a profile.
+- `AsmCallerGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS` with the `getCommonSuperClass` short-circuit, for
+  the same reason as `AsmAccessorGenerator`.
+
+- the fallback is a **normal public class**, not a second generator: `DefaultFunctionCaller` takes the
+  `GlobType` and the `GetFieldValueFunction` and can be built for any type, generated or not. Its loop is the
+  megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative.
+
+Unlike the accessors, this is not on by default anywhere: nothing in this module calls `create`, and
+`GeneratedCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
+`fn_i` statics being `static final` on a fresh class per caller, and `callerFor` picking the right one on
+both sides of the 64-field limit).
 
 ## How generation works
 
