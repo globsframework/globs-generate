@@ -12,7 +12,7 @@ import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.globsframework.model.generator.FieldVisitorToVisitName;
-import org.globsframework.model.generator.GenerateCaller;
+import org.globsframework.core.model.generate.GenerateCaller;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -422,9 +422,9 @@ public class AsmGlobObjectGenerator {
                     "getAccessors", "(I)Lorg/globsframework/model/generator/AccessorProvider;", false);
             methodVisitor.visitLdcInsn(id);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/object/AsmGlobObjectGenerator",
-                    "getCallerGenerator", "(I)Lorg/globsframework/model/generator/GenerateCaller;", false);
+                    "getCallerGenerator", "(I)Lorg/globsframework/core/model/generate/GenerateCaller;", false);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
-                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/model/generator/GenerateCaller;)V", false);
+                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/core/model/generate/GenerateCaller;)V", false);
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(4, 1);
             methodVisitor.visitEnd();

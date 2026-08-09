@@ -10,11 +10,11 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.SerializedOutput;
-import org.globsframework.model.generator.DefaultFunctionCaller;
-import org.globsframework.model.generator.FieldValueFunction;
-import org.globsframework.model.generator.GenerateCaller;
-import org.globsframework.model.generator.GeneratedFunctionCaller;
-import org.globsframework.model.generator.GlobGenerateFactory;
+import org.globsframework.core.model.generate.DefaultFunctionCaller;
+import org.globsframework.core.model.generate.FieldValueFunction;
+import org.globsframework.core.model.generate.GenerateCaller;
+import org.globsframework.core.model.generate.GeneratedFunctionCaller;
+import org.globsframework.core.model.generate.GlobGenerateFactory;
 import org.openjdk.jmh.annotations.*;
 
 import java.util.concurrent.atomic.AtomicInteger;

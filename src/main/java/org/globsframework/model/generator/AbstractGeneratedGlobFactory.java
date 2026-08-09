@@ -2,6 +2,9 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.model.generate.GenerateCaller;
+import org.globsframework.core.model.generate.GeneratedFunctionCaller;
+import org.globsframework.core.model.generate.GlobGenerateFactory;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
 import org.globsframework.core.utils.exceptions.ItemNotFound;

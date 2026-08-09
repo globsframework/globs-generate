@@ -2,6 +2,9 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.model.generate.FieldValueFunction;
+import org.globsframework.core.model.generate.GenerateCaller;
+import org.globsframework.core.model.generate.GeneratedFunctionCaller;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -34,10 +37,10 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public class AsmCallerGenerator {
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerGenerator";
-    private static final String FUNCTION = "org/globsframework/model/generator/FieldValueFunction";
+    private static final String FUNCTION = "org/globsframework/core/model/generate/FieldValueFunction";
     private static final String FUNCTION_DESC = "L" + FUNCTION + ";";
     private static final String FUNCTIONS_DESC = "[" + FUNCTION_DESC;
-    private static final String CALLER = "org/globsframework/model/generator/GeneratedFunctionCaller";
+    private static final String CALLER = "org/globsframework/core/model/generate/GeneratedFunctionCaller";
     private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
     private static final String OBJECT = "Ljava/lang/Object;";
 

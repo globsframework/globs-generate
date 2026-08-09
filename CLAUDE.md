@@ -150,9 +150,12 @@ Constraints that fall out of generating accessors, all of them load-time failure
 
 ## Generated callers
 
-The second thing a generated type offers, and the only part of this module a downstream repo calls directly.
-`AbstractGeneratedGlobFactory` implements **`GlobGenerateFactory`** (`GlobFactory` + `GenerateCaller`), so the
-way in is a cast:
+The second thing a generated type offers. **The interfaces are not here**: `GenerateCaller`,
+`GeneratedFunctionCaller`, `FieldValueFunction`, `GlobGenerateFactory` and `DefaultFunctionCaller` live in
+core, in `org.globsframework.core.model.generate`, precisely so that `globs-bin-serialisation` and
+`globs-grpc` can be written against them without depending on this module. What is here is the only
+implementation, `AsmCallerGenerator`, reached through `AbstractGeneratedGlobFactory` which implements
+`GlobGenerateFactory` — so the way in is a cast:
 
 ```java
 GeneratedFunctionCaller<Out, Void> caller = type.getGlobFactory() instanceof GlobGenerateFactory generate
@@ -200,10 +203,15 @@ Consequences of that design, all deliberate:
   variants of the interface would be the way out if that ever shows up in a profile.
 - `AsmCallerGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS` with the `getCommonSuperClass` short-circuit, for
   the same reason as `AsmAccessorGenerator`.
+- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/generate/`**
+  — in `AsmCallerGenerator` (`FUNCTION`, `CALLER`) and in the `getCallerGenerator` / super-constructor
+  descriptors of both factory generators. Moving them again without following through there is a
+  `NoSuchMethodError` at load time, not a compile error.
 
-- the fallback is a **normal public class**, not a second generator: `DefaultFunctionCaller` takes the
-  `GlobType` and the `GetFieldValueFunction` and can be built for any type, generated or not. Its loop is the
-  megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative.
+- the fallback is a **normal public class in core**, not a second generator: `DefaultFunctionCaller` takes
+  the `GlobType` and the `GetFieldValueFunction` and can be built for any type, generated or not. Its loop is
+  the megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative,
+  and core's `DefaultFunctionCallerTest` is the reference the generated one is held to.
 
 Unlike the accessors, this is not on by default anywhere: nothing in this module calls `create`, and
 `GeneratedCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
