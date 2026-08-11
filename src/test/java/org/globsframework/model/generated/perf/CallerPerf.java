@@ -15,6 +15,7 @@ import org.globsframework.core.model.generate.FieldValueFunction;
 import org.globsframework.core.model.generate.GenerateCaller;
 import org.globsframework.core.model.generate.GeneratedFunctionCaller;
 import org.globsframework.core.model.generate.GlobGenerateFactory;
+import org.globsframework.model.generator.AsmCallerGenerator;
 import org.openjdk.jmh.annotations.*;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,6 +64,14 @@ public class CallerPerf {
     private GeneratedFunctionCaller<SerializedOutput, Void> objectDefaultCaller;
     private GeneratedFunctionCaller<SerializedOutput, Void> primitiveDefaultCaller;
 
+    // core's DefaultGlob : nothing generated for the type at all, only the traversal
+    private Glob coreGlob;
+    private Field[] coreFields;
+    private GlobGetAccessor[] coreAccessors;
+    private FieldValueFunction[] coreFunctions;
+    private GeneratedFunctionCaller<SerializedOutput, Void> coreCaller;
+    private GeneratedFunctionCaller<SerializedOutput, Void> coreDefaultCaller;
+
     @Setup
     public void setUp() {
         output = new ByteBufferSerializationOutput(new byte[1024 * 1024]);
@@ -82,10 +91,23 @@ public class CallerPerf {
         primitiveCaller = callerOf(primitiveType);
         objectDefaultCaller = new DefaultFunctionCaller<>(objectType, functions());
         primitiveDefaultCaller = new DefaultFunctionCaller<>(primitiveType, functions());
+
+        GlobType coreType = build("core", null);
+        coreGlob = fill(coreType);
+        coreFields = coreType.getFields();
+        coreAccessors = accessorsOf(coreType);
+        coreFunctions = functionsOf(coreType);
+        coreCaller = AsmCallerGenerator.forDefaultGlob(coreType).create(functions());
+        coreDefaultCaller = new DefaultFunctionCaller<>(coreType, functions());
     }
 
+    /** service == null : core's DefaultGlob, no generation of any kind for the type. */
     private GlobType build(String tag, String service) {
-        System.setProperty("globs.builder", service);
+        if (service == null) {
+            System.clearProperty("globs.builder");
+        } else {
+            System.setProperty("globs.builder", service);
+        }
         GlobFactoryService.Builder.reset();
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("Caller_" + tag + "_" + UNIQUE.incrementAndGet());
         for (int i = 0; i < fieldCount; i++) {
@@ -97,7 +119,7 @@ public class CallerPerf {
             }
         }
         GlobType type = builder.build();
-        if (!(type.getGlobFactory() instanceof GlobGenerateFactory)) {
+        if (service != null && !(type.getGlobFactory() instanceof GlobGenerateFactory)) {
             throw new IllegalStateException("generation is inert for " + tag + " : " + type.getGlobFactory().getClass());
         }
         System.clearProperty("globs.builder");
@@ -215,6 +237,28 @@ public class CallerPerf {
     public int defaultCallerPrimitive() {
         output.reset();
         primitiveDefaultCaller.call(primitiveGlob, output, null);
+        return output.position();
+    }
+
+    // ---- core's DefaultGlob : the three ways to walk it ----------------------------------------
+
+    @Benchmark
+    public int loopCoreGlob() {
+        return loop(coreGlob, coreFields, coreAccessors, coreFunctions);
+    }
+
+    @Benchmark
+    public int defaultCallerCoreGlob() {
+        output.reset();
+        coreDefaultCaller.call(coreGlob, output, null);
+        return output.position();
+    }
+
+    /** the generated caller over a Glob nothing generated : get(int) + isSetAt(int), unrolled */
+    @Benchmark
+    public int callerCoreGlob() {
+        output.reset();
+        coreCaller.call(coreGlob, output, null);
         return output.position();
     }
 

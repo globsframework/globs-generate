@@ -8,6 +8,9 @@ import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.generate.DefaultFunctionCaller;
+import org.globsframework.core.model.generate.GenerateCallerService;
+import org.globsframework.model.generator.AsmCallerGenerator;
+import org.globsframework.model.generator.AsmCallerGeneratorService;
 import org.globsframework.core.model.generate.FieldValueFunction;
 import org.globsframework.core.model.generate.GenerateCaller;
 import org.globsframework.core.model.generate.GeneratedFunctionCaller;
@@ -37,6 +40,8 @@ public class GeneratedCallerTest {
     public void tearDown() {
         System.clearProperty("globs.builder");
         GlobFactoryService.Builder.reset();
+        System.clearProperty("globs.caller");
+        GenerateCallerService.Builder.reset();
     }
 
     /**
@@ -164,6 +169,92 @@ public class GeneratedCallerTest {
         GeneratedFunctionCaller<List<Seen>, String> wideCaller = GenerateCaller.callerFor(tooWide, recorder());
         Assertions.assertInstanceOf(DefaultFunctionCaller.class, wideCaller);
         checkStates(tooWide, wideCaller, 70);
+    }
+
+    /**
+     * The caller over a Glob this module did not generate : core's DefaultGlob64/128/DefaultGlob, read
+     * through the values array and the set mask directly. Same three arguments, so the same assertions as
+     * the generated flavours — that is the whole point of it.
+     * <p>
+     * The mask is read the way each concrete class writes it (an int, a long, one of two longs, a BitSet),
+     * so the shape is asserted next to the behaviour : a change in core's sizing would otherwise silently
+     * stop testing one of them. DefaultGlob32 is unreachable here — gfw.minSize defaults to 64 and is a
+     * static final — and is covered by DefaultGlobCallerShapesTest, which forks a JVM for it.
+     */
+    @Test
+    public void theCallerOverACoreDefaultGlobOnEveryReachableShape() {
+        for (int count : new int[]{10, 45, 100, 200}) {
+            GlobType type = build(null, "CallerDefaultGlob" + count, count);
+            Assertions.assertFalse(type.getGlobFactory() instanceof GlobGenerateFactory);
+            Assertions.assertEquals(count <= 64 ? "DefaultGlob64" : count <= 128 ? "DefaultGlob128" : "DefaultGlob",
+                    type.instantiate().getClass().getSimpleName(), count + " fields");
+
+            GeneratedFunctionCaller<List<Seen>, String> caller =
+                    AsmCallerGenerator.forDefaultGlob(type).create(recorder());
+            Assertions.assertFalse(caller instanceof DefaultFunctionCaller,
+                    "this one is generated, unlike the fallback");
+            checkStates(type, caller, count);
+        }
+    }
+
+    /**
+     * Installed through {@code -Dglobs.caller}, the service is what makes callerFor answer a generated caller
+     * for a type core built itself — the point being that a codec keeps calling callerFor and nothing else.
+     */
+    @Test
+    public void theServiceMakesCallerForGenerateOverACoreDefaultGlob() {
+        GlobType type = build(null, "CallerService", 20);
+        Assertions.assertInstanceOf(DefaultFunctionCaller.class, GenerateCaller.callerFor(type, recorder()),
+                "the loop, until the service is installed");
+
+        System.setProperty("globs.caller", AsmCallerGeneratorService.class.getName());
+        GenerateCallerService.Builder.reset();
+        try {
+            GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor(type, recorder());
+            Assertions.assertFalse(caller instanceof DefaultFunctionCaller, "generated now");
+            checkStates(type, caller, 20);
+        } finally {
+            System.clearProperty("globs.caller");
+            GenerateCallerService.Builder.reset();
+        }
+    }
+
+    /**
+     * With both properties set, a generated type is served by its own factory : the service only ever sees
+     * what fell back, so installing it can never downgrade a type that had something better.
+     */
+    @Test
+    public void theFactoryStillWinsOverTheServiceForAGeneratedType() {
+        System.setProperty("globs.caller", AsmCallerGeneratorService.class.getName());
+        GenerateCallerService.Builder.reset();
+        try {
+            GlobType type = build(OBJECT, "CallerServiceAndFactory", 20);
+            Assertions.assertTrue(type.getGlobFactory() instanceof GlobGenerateFactory);
+            // the service refuses a generated Glob, so this can only come from the factory
+            Assertions.assertNull(new AsmCallerGeneratorService().getGenerateCaller(type));
+            checkStates(type, GenerateCaller.callerFor(type, recorder()), 20);
+        } finally {
+            System.clearProperty("globs.caller");
+            GenerateCallerService.Builder.reset();
+        }
+    }
+
+    /** ... and it must answer exactly what the looped fallback answers over the same Glob. */
+    @Test
+    public void theCallerOverACoreDefaultGlobAgreesWithTheLoopedOne() {
+        for (int count : new int[]{10, 45, 100, 200}) {
+            GlobType type = build(null, "CallerDefaultAgree" + count, count);
+            Field[] fields = type.getFields();
+            MutableGlob glob = type.instantiate();
+            IntStream.range(0, count).filter(i -> i % 3 == 0)
+                    .forEach(i -> glob.setValue(fields[i], null));
+            IntStream.range(0, count).filter(i -> i % 3 == 1)
+                    .forEach(i -> glob.setValue(fields[i], sample(fields[i])));
+
+            Assertions.assertEquals(call(new DefaultFunctionCaller<>(type, recorder()), glob),
+                    call(AsmCallerGenerator.forDefaultGlob(type).create(recorder()), glob),
+                    count + " fields");
+        }
     }
 
     /** ... and the generated one whenever there is one. */

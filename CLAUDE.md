@@ -208,6 +208,74 @@ Consequences of that design, all deliberate:
   descriptors of both factory generators. Moving them again without following through there is a
   `NoSuchMethodError` at load time, not a compile error.
 
+### The caller over a Glob that was *not* generated
+
+`AsmCallerGenerator.forDefaultGlob(type)` emits the same unrolled caller over core's `DefaultGlob32/64/128`.
+Nothing is generated for the type itself — no Glob class, no accessor classes — so the application's own
+`glob.get(F)` keeps going through core's `values[field.getIndex()]`, a handful of bytecodes that always
+inlines. Only the traversal a codec does is generated.
+
+That matters because the generated Globs are **not free for application code**: `doGet`/`doSet` are a
+`tableswitch` over every field, so their bytecode size grows with the field count (measured on the object
+flavour: `doSet` 214 bytecodes at 10 fields, **384 at 20**, 724 at 40; `doGet` 288 at 20, **528 at 40**).
+Past `FreqInlineSize` (325) a hot callee is never inlined, where core's `uncheckGet` is an array load that
+always is. So a type wider than ~15-20 fields turns every `glob.get(F)` / `set(F, v)` in the application
+into a real call, and narrow types inline a whole tableswitch per access — which can blow C2's node budget
+(`COMPILE SKIPPED: out of nodes`) in a method that touches many fields. This entry point is the way to take
+the caller without taking that.
+
+The emitted `call` is **field reads only**: the value is `values[index]` out of `AbstractDefaultGlob`'s array,
+and the set bit comes from the mask of the exact concrete class. Both are `public` in core for exactly this —
+the same bet the generated Globs already make for their own accessors, and the reason the four classes carry
+a comment saying so. No `Field`, no `getIndex()`, no virtual call, no tableswitch.
+
+The mask is read the way its own class writes it, so the emitted shape is **per concrete class**: an `int` for
+`DefaultGlob32`, a `long` for `DefaultGlob64`, one of two longs with a shift of `index-64` for
+`DefaultGlob128`, and — above 128 fields, where core keeps a `BitSet` and there is no bit to GETFIELD —
+`BitSet.get(int)` on the field. A wrong shift is a wrong answer for one field, silently, which is what
+`DefaultGlobCallerShapesTest` is for: it forks a JVM with `-Dgfw.minSize=32` (the only way to reach
+`DefaultGlob32`, since that floor is a static final read once) and holds all four shapes against
+`DefaultFunctionCaller`. `isNull` is the value being null, which is precisely what core answers
+(`Glob.isNull(field)` is `doCheckedGet(field) == null`). `forDefaultGlob` returns **null** for a type whose
+factory does not build an `AbstractDefaultGlob`, which is the signal to fall back.
+
+Measured with `CallerPerf`, all callers over the same functions, at 4 / 20 / 40 fields (M ops/s):
+
+| walk | 4 | 20 | 40 |
+| --- | --- | --- | --- |
+| loop over accessors + functions | 23.0 | 4.57 | 2.30 |
+| `DefaultFunctionCaller` | 18.9 | 3.97 | 2.00 |
+| **generated over DefaultGlob** | **76.7** | **14.3** | **6.09** |
+| generated over a generated Glob (object) | 91.1 | 15.8 | 6.77 |
+
+×3.3 / ×3.1 / ×2.6 against the loop, and within 11-16 % of the caller over a generated Glob — for none of the
+per-type classes, and none of the inlining damage generation does to the code around it. Reading the fields
+rather than calling `get(int)` / `isSetAt(int)` (both final, both inlinable) is a wash at 4 and 20 fields and
+worth **+22 %** at 40 — the wider the type, the tighter the inlining budget of the one big `call`.
+
+It is wired in through core's extension point, the same way the generators themselves are — a class name on
+the command line:
+
+```
+-Dglobs.caller=org.globsframework.model.generator.AsmCallerGeneratorService
+```
+
+`AsmCallerGeneratorService` is a two-line `GenerateCallerService` returning `forDefaultGlob(type)`, and
+`GenerateCaller.callerFor` asks it for any type whose factory is not a `GlobGenerateFactory`, falling back to
+`DefaultFunctionCaller` when it answers null. So a codec keeps calling `callerFor` and nothing else, and the
+two properties are independent: with `globs.builder` set as well, a generated type is served by its own
+factory and the service only ever sees what fell back — installing it cannot downgrade anything
+(`theFactoryStillWinsOverTheServiceForAGeneratedType`).
+
+| what | property | value |
+| --- | --- | --- |
+| generate the Globs | `globs.builder` | a `GlobFactoryService` class name |
+| generate the callers of the Globs core builds | `globs.caller` | a `GenerateCallerService` class name |
+
+Setting `globs.caller` alone is the configuration for an application that measured `globs.builder` to be a
+loss on its own code — see the `doGet` sizes above — but still wants its codecs to walk a Glob without a
+megamorphic call per field.
+
 - the fallback is a **normal public class in core**, not a second generator: `DefaultFunctionCaller` takes
   the `GlobType` and the `GetFieldValueFunction` and can be built for any type, generated or not. Its loop is
   the megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative,

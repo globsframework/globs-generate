@@ -4,7 +4,9 @@ import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.generate.FieldValueFunction;
 import org.globsframework.core.model.generate.GenerateCaller;
+import org.globsframework.core.model.generate.DefaultFunctionCaller;
 import org.globsframework.core.model.generate.GeneratedFunctionCaller;
+import org.globsframework.core.model.impl.AbstractDefaultGlob;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -55,6 +57,16 @@ public class AsmCallerGenerator {
     // ClassLoader of the generated class -- alive.
     private static final Map<Integer, FieldValueFunction[]> PENDING = new ConcurrentHashMap<>();
 
+    /** How the emitted {@code call} gets isSet / isNull / the value out of the Glob it was cast to. */
+    private enum Access {
+        /** generated Glob, object flavour : public value fields, one isSet mask, null is the value being null */
+        OBJECT,
+        /** generated Glob, primitive flavour : native value fields, isSet *and* isNull masks */
+        PRIMITIVE,
+        /** core's DefaultGlob32/64/128 : the values array through get(int), the mask through isSetAt(int) */
+        DEFAULT_GLOB
+    }
+
     /**
      * The GenerateCaller handed to the factory of a generated type. It closes over the ClassLoader holding
      * the generated Glob class, which is the only thing that can resolve it — that is why the factory cannot
@@ -65,16 +77,50 @@ public class AsmCallerGenerator {
      */
     public static GenerateCaller generatorFor(ClassLoader globLoader, String globInternalName, GlobType type,
                                               boolean primitive) {
+        Access access = primitive ? Access.PRIMITIVE : Access.OBJECT;
         return new GenerateCaller() {
             public <D, E> GeneratedFunctionCaller<D, E> create(GetFieldValueFunction<D, E> getFieldValueFunction) {
-                return generate(globLoader, globInternalName, type, primitive, getFieldValueFunction);
+                return generate(globLoader, globInternalName, type, access, getFieldValueFunction);
+            }
+        };
+    }
+
+    /**
+     * The same unrolled caller, over a Glob this module did **not** generate : core's DefaultGlob32/64/128.
+     * <p>
+     * Nothing is generated for the type itself — no Glob class, no accessors, so the application's own
+     * {@code glob.get(F)} keeps going through core's {@code values[field.getIndex()]}, which is a handful of
+     * bytecodes and always inlines. Only the traversal a codec does is generated, and it reads the values
+     * array straight through {@code AbstractDefaultGlob.get(int)} (final, an array load once inlined) and the
+     * set mask through {@code isSetAt(int)} on the *exact* concrete class (final, one mask test) — no Field
+     * object, no {@code getIndex()}, no interface dispatch, no tableswitch.
+     * <p>
+     * That makes it the option for an application that measured the generated Globs to be a loss : the
+     * per-field call sites of the codec become monomorphic without the metamodel of the whole process
+     * gaining one Glob class per type.
+     *
+     * @return null when the type's factory does not build an AbstractDefaultGlob — nothing here can read it,
+     * and a caller of {@link GenerateCaller#callerFor} should fall back to {@link DefaultFunctionCaller}.
+     */
+    public static GenerateCaller forDefaultGlob(GlobType type) {
+        Class<?> globClass = type.instantiate().getClass();
+        if (!AbstractDefaultGlob.class.isAssignableFrom(globClass)) {
+            return null;
+        }
+        String globInternalName = globClass.getName().replace('.', '/');
+        // the concrete Glob is an ordinary core class : the caller only needs a child of this module's own
+        // loader, not the throwaway one a generated Glob lives in
+        ClassLoader loader = AsmCallerGenerator.class.getClassLoader();
+        return new GenerateCaller() {
+            public <D, E> GeneratedFunctionCaller<D, E> create(GetFieldValueFunction<D, E> getFieldValueFunction) {
+                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, getFieldValueFunction);
             }
         };
     }
 
     @SuppressWarnings("unchecked")
     private static <D, E> GeneratedFunctionCaller<D, E> generate(ClassLoader globLoader, String globInternalName,
-                                                                 GlobType type, boolean primitive,
+                                                                 GlobType type, Access access,
                                                                  GenerateCaller.GetFieldValueFunction<D, E> provider) {
         Field[] fields = type.getFields();
         FieldValueFunction[] functions = new FieldValueFunction[fields.length];
@@ -88,13 +134,13 @@ public class AsmCallerGenerator {
         }
 
         int id = ID.incrementAndGet();
-        String callerName = getCallerName(globInternalName, id);
+        String callerName = getCallerName(globInternalName, access, id);
         // a child of the loader holding the Glob class : it sees it through delegation, and it is thrown
         // away with the caller it was built for
         ClassLoader loader = new ClassLoader(globLoader) {
             protected Class<?> findClass(String name) throws ClassNotFoundException {
                 if (name.replace('.', '/').equals(callerName)) {
-                    byte[] b = generateCaller(callerName, globInternalName, type, primitive, id);
+                    byte[] b = generateCaller(callerName, globInternalName, type, access, id);
                     return super.defineClass(name, b, 0, b.length);
                 }
                 return super.findClass(name);
@@ -124,7 +170,11 @@ public class AsmCallerGenerator {
         return functions;
     }
 
-    static String getCallerName(String globInternalName, int id) {
+    static String getCallerName(String globInternalName, Access access, int id) {
+        if (access == Access.DEFAULT_GLOB) {
+            // the Glob is a core class : keep the caller out of core's package rather than splitting it
+            return "org/globsframework/model/generated/defaultglob/GeneratedFunctionCaller_" + id;
+        }
         String simple = globInternalName.substring(globInternalName.lastIndexOf('/') + 1);
         return globInternalName.substring(0, globInternalName.lastIndexOf('/') + 1)
                + "GeneratedFunctionCaller_" + simple.substring(simple.lastIndexOf('_') + 1) + "_" + id;
@@ -134,7 +184,7 @@ public class AsmCallerGenerator {
         return "fn_" + field.getIndex();
     }
 
-    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, boolean primitive,
+    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access,
                                  int id) {
         Field[] fields = type.getFields();
         boolean is32Bit = type.getFieldCount() <= 32;
@@ -188,7 +238,12 @@ public class AsmCallerGenerator {
                 methodVisitor.visitTypeInsn(CHECKCAST, globInternalName);
                 methodVisitor.visitVarInsn(ASTORE, GLOB_SLOT);
                 for (Field field : fields) {
-                    emitFieldCall(methodVisitor, callerName, globInternalName, field, primitive, is32Bit);
+                    if (access == Access.DEFAULT_GLOB) {
+                        emitDefaultGlobFieldCall(methodVisitor, callerName, globInternalName, field);
+                    } else {
+                        emitFieldCall(methodVisitor, callerName, globInternalName, field,
+                                access == Access.PRIMITIVE, is32Bit);
+                    }
                 }
             }
             methodVisitor.visitInsn(RETURN);
@@ -272,6 +327,84 @@ public class AsmCallerGenerator {
         methodVisitor.visitVarInsn(ALOAD, 3);
         methodVisitor.visitMethodInsn(INVOKEINTERFACE, FUNCTION, "call",
                 "(ZZ" + OBJECT + OBJECT + OBJECT + ")V", true);
+    }
+
+    /**
+     * The same call, over one of core's DefaultGlob32/64/128/DefaultGlob.
+     * <p>
+     * Everything is a field read : the value is {@code values[index]} out of AbstractDefaultGlob's array, and
+     * the set bit comes from the mask of the *exact* concrete class. Both are {@code public} in core for
+     * exactly this — the same bet the generated Globs already make for their own accessors. No Field object,
+     * no getIndex(), no virtual call, no tableswitch.
+     * <p>
+     * The mask is read the way its own class writes it, which is why the shape is per class : an {@code int}
+     * for DefaultGlob32, a {@code long} for DefaultGlob64, one of two longs (and a shift of index-64) for
+     * DefaultGlob128. Above 128 fields core keeps a BitSet, which has no bit to GETFIELD — that one still
+     * goes through {@code BitSet.get(int)}, on the field rather than through isSetAt.
+     * <p>
+     * isNull is the value being null, which is exactly what core answers : {@code Glob.isNull(field)} is
+     * {@code doCheckedGet(field) == null}, i.e. the same array slot. So the three arguments agree with
+     * {@link DefaultFunctionCaller} field by field, including the unset case (not set, null, no value).
+     */
+    private static void emitDefaultGlobFieldCall(MethodVisitor methodVisitor, String callerName,
+                                                 String globInternalName, Field field) {
+        int index = field.getIndex();
+
+        methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+        methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "values", "[" + OBJECT);
+        pushInt(methodVisitor, index);
+        methodVisitor.visitInsn(AALOAD);
+        methodVisitor.visitVarInsn(ASTORE, VALUE_SLOT);
+
+        methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(field), FUNCTION_DESC);
+
+        emitDefaultGlobIsSet(methodVisitor, globInternalName, index);
+
+        Label nullLabel = new Label();
+        Label done = new Label();
+        methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+        methodVisitor.visitJumpInsn(IFNULL, nullLabel);
+        methodVisitor.visitInsn(ICONST_0);
+        methodVisitor.visitJumpInsn(GOTO, done);
+        methodVisitor.visitLabel(nullLabel);
+        methodVisitor.visitInsn(ICONST_1);
+        methodVisitor.visitLabel(done);
+        methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+
+        methodVisitor.visitVarInsn(ALOAD, 2);
+        methodVisitor.visitVarInsn(ALOAD, 3);
+        methodVisitor.visitMethodInsn(INVOKEINTERFACE, FUNCTION, "call",
+                "(ZZ" + OBJECT + OBJECT + OBJECT + ")V", true);
+    }
+
+    /**
+     * Pushes the set bit of {@code index} as the 0 / 1 an int-typed boolean argument wants, reading the mask
+     * field of the concrete class. Branchless, and the same bit its own setSetAt writes.
+     */
+    private static void emitDefaultGlobIsSet(MethodVisitor methodVisitor, String globInternalName, int index) {
+        methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+        switch (globInternalName.substring(globInternalName.lastIndexOf('/') + 1)) {
+            case "DefaultGlob32" -> {
+                methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "set", "I");
+                extractBit(methodVisitor, index, true);
+            }
+            case "DefaultGlob64" -> {
+                methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "set", "J");
+                extractBit(methodVisitor, index, false);
+            }
+            case "DefaultGlob128" -> {
+                // two longs, the second one holding the bits of index 64 and above
+                methodVisitor.visitFieldInsn(GETFIELD, globInternalName,
+                        index < 64 ? "set1" : "set2", "J");
+                extractBit(methodVisitor, index < 64 ? index : index - 64, false);
+            }
+            // above 128 fields core keeps a BitSet : there is no bit to read, only its get(int)
+            default -> {
+                methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "isSet", "Ljava/util/BitSet;");
+                pushInt(methodVisitor, index);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/util/BitSet", "get", "(I)Z", false);
+            }
+        }
     }
 
     private static void pushMask(MethodVisitor methodVisitor, String globInternalName, String mask, boolean is32Bit) {
