@@ -1,8 +1,8 @@
 package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.model.generate.GenerateCaller;
-import org.globsframework.core.model.generate.GenerateCallerService;
+import org.globsframework.core.model.generate.read.GenerateCaller;
+import org.globsframework.core.model.generate.read.GenerateCallerService;
 
 /**
  * What {@code -Dglobs.caller=org.globsframework.model.generator.AsmCallerGeneratorService} installs : from

@@ -2,10 +2,10 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
-import org.globsframework.core.model.generate.FieldValueFunction;
-import org.globsframework.core.model.generate.GenerateCaller;
-import org.globsframework.core.model.generate.DefaultFunctionCaller;
-import org.globsframework.core.model.generate.GeneratedFunctionCaller;
+import org.globsframework.core.model.generate.read.FieldValueFunction;
+import org.globsframework.core.model.generate.read.GenerateCaller;
+import org.globsframework.core.model.generate.read.DefaultFunctionCaller;
+import org.globsframework.core.model.generate.read.GeneratedFunctionCaller;
 import org.globsframework.core.model.impl.AbstractDefaultGlob;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
@@ -39,10 +39,10 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public class AsmCallerGenerator {
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerGenerator";
-    private static final String FUNCTION = "org/globsframework/core/model/generate/FieldValueFunction";
+    private static final String FUNCTION = "org/globsframework/core/model/generate/read/FieldValueFunction";
     private static final String FUNCTION_DESC = "L" + FUNCTION + ";";
     private static final String FUNCTIONS_DESC = "[" + FUNCTION_DESC;
-    private static final String CALLER = "org/globsframework/core/model/generate/GeneratedFunctionCaller";
+    private static final String CALLER = "org/globsframework/core/model/generate/read/GeneratedFunctionCaller";
     private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
     private static final String OBJECT = "Ljava/lang/Object;";
 

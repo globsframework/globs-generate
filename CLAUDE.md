@@ -152,7 +152,7 @@ Constraints that fall out of generating accessors, all of them load-time failure
 
 The second thing a generated type offers. **The interfaces are not here**: `GenerateCaller`,
 `GeneratedFunctionCaller`, `FieldValueFunction`, `GlobGenerateFactory` and `DefaultFunctionCaller` live in
-core, in `org.globsframework.core.model.generate`, precisely so that `globs-bin-serialisation` and
+core, in `org.globsframework.core.model.generate.read`, precisely so that `globs-bin-serialisation` and
 `globs-grpc` can be written against them without depending on this module. What is here is the only
 implementation, `AsmCallerGenerator`, reached through `AbstractGeneratedGlobFactory` which implements
 `GlobGenerateFactory` — so the way in is a cast:
@@ -203,7 +203,7 @@ Consequences of that design, all deliberate:
   variants of the interface would be the way out if that ever shows up in a profile.
 - `AsmCallerGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS` with the `getCommonSuperClass` short-circuit, for
   the same reason as `AsmAccessorGenerator`.
-- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/generate/`**
+- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/generate/read/`**
   — in `AsmCallerGenerator` (`FUNCTION`, `CALLER`) and in the `getCallerGenerator` / super-constructor
   descriptors of both factory generators. Moving them again without following through there is a
   `NoSuchMethodError` at load time, not a compile error.
