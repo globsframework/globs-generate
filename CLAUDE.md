@@ -29,7 +29,7 @@ Online resolution needs `mvn -s settings.xml …` with `$GH_MAVEN_REGISTRY_USER`
 `$GH_MAVEN_REGISTRY_ACCESS_TOKEN` (this is what the GitHub workflow runs).
 
 The JMH benchmarks in `generated/perf` (`SerializerPerf` glob serialization vs kryo, `AccessorPerf`,
-`VisitorUnrollPerf`, `CallerPerf`) have no `exec` binding; run them by hand:
+`VisitorUnrollPerf`, `CallerPerf`, `CallerWritePerf`) have no `exec` binding; run them by hand:
 
 ```bash
 mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -271,6 +271,7 @@ factory and the service only ever sees what fell back — installing it cannot d
 | --- | --- | --- |
 | generate the Globs | `globs.builder` | a `GlobFactoryService` class name |
 | generate the callers of the Globs core builds | `globs.caller` | a `GenerateCallerService` class name |
+| generate the callers a parser writes with | `globs.callerWrite` | a `GenerateCallerWriteService` class name |
 
 Setting `globs.caller` alone is the configuration for an application that measured `globs.builder` to be a
 loss on its own code — see the `doGet` sizes above — but still wants its codecs to walk a Glob without a
@@ -285,6 +286,151 @@ Unlike the accessors, this is not on by default anywhere: nothing in this module
 `GeneratedCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
 `fn_i` statics being `static final` on a fresh class per caller, and `callerFor` picking the right one on
 both sides of the 64-field limit).
+
+### The other direction : writing into a MutableGlob
+
+`AsmCallerWriteGenerator` is the generating implementation of `GeneratedFunctionCallerWrite`
+(`org.globsframework.core.model.generate.write`, next to `GeneratedCallerWrite`, `GeneratedCallerWriteAll`,
+`CallAtWrite`, `MutableFunctionWrite` and core's looped `DefaultFunctionCallerWrite`), for the parsing side: a
+`MutableFunctionWrite` reads whatever comes next in the input and sets it on the Glob. Two shapes, one class
+emitted per `create` call, both holding their functions in `public static final` fields:
+
+```java
+GeneratedFunctionCallerWrite factory = GeneratedFunctionCallerWrite.get();   // this, or core's loop
+SortedMap<Integer, MutableFunctionWrite<In, Void, Void>> functions = new TreeMap<>();  // key -> what to write
+GeneratedCallerWrite<In, Void, Void> caller = factory.create(functions, skipUnknown, -1);
+caller.call(parser, type.instantiate(), in, null, null);   // loops until parser answers -1
+
+GeneratedCallerWriteAll<In, Void, Void> all = factory.create(functionArray);
+all.call(glob, in, null, null);                            // every function once, in array order
+```
+
+It is wired in through core's extension point, the same way everything else here is — a class name on the
+command line, and `AsmCallerWriteGeneratorService` is the two-line `GenerateCallerWriteService` behind it:
+
+```
+-Dglobs.callerWrite=org.globsframework.model.generator.AsmCallerWriteGeneratorService
+```
+
+Independent of the other two properties, and unlike them it answers for the whole process at once — there is
+no GlobType to be "not mine" about. Unset, `get()` keeps answering `DefaultFunctionCallerWrite`, whose loop is
+the megamorphic dispatch this exists to remove; same order, same fallback, same `endLoop`, same messages, so a
+parser keeps one code path and only the speed changes.
+
+`GeneratedCallerWrite` emits `while ((next = callAt.getNextToCall()) != endLoop) switch (next) { … }`, the
+`endLoop` test *before* the switch — so that value never dispatches, even when it is also a key.
+`GeneratedCallerWriteAll` unrolls the array. Either way each entry gets its own `GETSTATIC` +
+`INVOKEINTERFACE`, which is the whole point, exactly as on the read side.
+
+What is different from the read side, and worth knowing before reaching for one:
+
+- **nothing reads a Glob's layout.** The functions write through `MutableGlob`, so there is no `GlobType` to
+  walk, no `CHECKCAST` to a generated Glob class, and no ClassLoader to borrow from a factory — the emitted
+  code names core interfaces only, and the caller is defined in a throwaway child of *this module's* loader.
+  It therefore works over any Glob, `globs.builder` set or not, and `create` takes functions rather than a
+  type;
+- the keys are **arbitrary ints**, sorted by the generator rather than taken as the `SortedMap` iterates
+  (a map may carry its own comparator, and a `lookupswitch` wants them ascending). Dense keys get a
+  `tableswitch`, sparse ones a `lookupswitch`, on javac's rule of thumb (`useTableSwitch`);
+- the **fallback is optional**: null means an unknown key is a bug, and the default branch throws rather than
+  skipping silently — through `GeneratedFunctionCallerWrite.unknownKey(int)`, *core's* static and not one of
+  ours, so that the loop and the generated switch fail identically. It is emitted as an `INVOKESTATIC` on an
+  interface (`itf` true), which is only legal from class file 52 on — the emitted classes are V17;
+- there is **no `GlobGenerateFactory` to ask**, generation not depending on the type, so the resolution has
+  two sources instead of three: `GeneratedFunctionCallerWrite.get()` asks the service, then falls back to the
+  loop.
+
+Measured with `CallerWritePerf` (JMH, one pass = one record: every entry reads its value from a
+`SerializedInput` and sets it on a `MutableGlob`, the same four `MutableFunctionWrite` classes on every arm),
+at 4 / 20 / 40 entries, M ops/s — the 40 column at `-f 2 -wi 5 -i 8`, where the surprise is:
+
+| pass | 4 | 20 | 40 |
+| --- | --- | --- | --- |
+| dense keys, hand loop over an array | 19.5 | 3.89 | 1.90 |
+| dense keys, `DefaultFunctionCallerWrite` | 17.4 | 3.30 | 1.58 |
+| **dense keys, generated** (tableswitch) | **32.0** | **4.40** | **1.62** |
+| sparse keys, hand loop over a `HashMap` | 15.8 | 3.23 | 1.54 |
+| sparse keys, `DefaultFunctionCallerWrite` | 17.4 | 3.27 | 1.49 |
+| **sparse keys, generated** (lookupswitch) | **31.4** | **4.27** | **2.09** |
+| every entry, hand loop over the array | 21.0 | 4.23 | 2.14 |
+| every entry, `DefaultFunctionCallerWrite` | 20.9 | 4.24 | 2.18 |
+| **every entry, generated** (unrolled) | **34.6** | **7.24** | **2.79** |
+
+Read this before assuming the write side pays like the read side does:
+
+- **the win is real but small, and it shrinks with the entry count**: ×1.6 at 4 entries, ×1.13 at 20, against
+  the hand loop. Where the read caller wins ×4 or more, here every turn already does real work (parse a
+  value, `set` it on the Glob), so the dispatch is a much smaller share of it — and the read baseline pays
+  *two* megamorphic call sites per field (accessor + function) where a parser's loop pays one;
+- **at 40 dense keys the generated switch loses to the loop** (1.62 against 1.90), reproducibly, while the
+  lookupswitch arm at the same width still wins ×1.36. The unrolled `call` is one big method: past a certain
+  number of cases the inlining budget is gone and what is left is an indirect jump through a 40-entry table,
+  which predicts worse than the binary search of a lookupswitch over a key sequence that repeats record after
+  record. So `globs.callerWrite` is a win for narrow records and for sparse keys, and worth *measuring* for a
+  wide record with dense ones;
+- **`GeneratedCallerWriteAll` is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no CallAt, just
+  the unrolled calls. A format whose entries are all there and always in the same order should use it;
+- `DefaultFunctionCallerWrite` is at or just under the hand loop everywhere, which is what a fallback should
+  be : nothing is lost by going through `GeneratedFunctionCallerWrite.get()` on a JVM that installs nothing.
+
+`GeneratedCallerWriteTest` pins it: both switch shapes over 200 keys each, negative keys, a reversed
+comparator, the fallback and its absence, `endLoop` shadowing a key, the empty map and the empty array, the
+class-per-`create` / `static final` invariants, the property wiring, and
+`theLoopedCallerAndTheGeneratedOneAgree` — same trace and same exception message as
+`DefaultFunctionCallerWrite` over the same script.
+
+### The second level : declare the functions as records or lambdas
+
+Both generators buy the *first* call site: the function sits in a `static final`, so it is a constant oop and
+`fn_i.call(...)` inlines. But a real function is rarely a leaf — it holds a codec, a delegate, a nested
+caller in a field of its own, and that second call is where the win is silently lost.
+
+Once `fn_i.call` is inlined, `this` **is** that constant, so `this.delegate` is a field read on a constant
+receiver. C2 folds it only for a class it trusts with its final instance fields — and
+`TrustFinalNonStaticFields` is `false` by default (an `experimental` flag). Trusted anyway, today and with no
+flag: **records**, **hidden classes**, and therefore **lambdas** (their captured fields live in the hidden
+class `LambdaMetafactory` spins). Without the fold, all that is left is the type profile of the bytecode
+`delegate.call(...)`, which is *shared by every instance of the function class* — megamorphic as soon as the
+codec is built for three types in the process, i.e. exactly the situation.
+
+Measured on JDK 27-ea with four collaborator classes (`-XX:+PrintInlining` in the third column):
+
+| the function is | second level | ns / 4 calls |
+| --- | --- | --- |
+| an ordinary class, `private final Delegate d` | `failed to inline: virtual call` | 5.40 |
+| **a record** | `DelegateA::run … inline (hot)` | **0.51** |
+| **a lambda** | `DelegateA::run … inline (hot)` | **0.51** |
+| an ordinary class, `-XX:+UnlockExperimentalVMOptions -XX:+TrustFinalNonStaticFields` | `inline (hot)` | 0.53 |
+| a table of functions (first level not constant either) | nothing propagates, flag or not | 10.90 |
+
+So: **a `FieldValueFunction` or a `MutableFunctionWrite` written as a named class with final fields throws
+away half of what the generator bought**; the same code as a `record` (or a lambda) keeps it. Both modules that adopted the caller have been converted, each measured on its own
+`GeneratedGlobPerfTest.write` OBJECT, five forks per arm, A/B/A: `globs-grpc`'s `ProtoBufFieldSerializer`
+leaves, **+4 %** (224k → 233-235k), and `globs-bin-serialisation`'s `FieldWriter`s, **+6.7 %**
+(207.8k → 221.7k). Both on the *leaves*, where the only thing to fold is a field number feeding an inlined
+tag write.
+
+**Do not assume the nested case is the same trade — measured, it is the opposite.** In
+globs-bin-serialisation a Glob-valued writer delegates a whole sub-Glob through a field
+(`GlobTypeFieldWriters.caller`, non-final and unfoldable). Making that descent foldable costs **−12 %** on a
+nested-heavy shape (`writeNested`, a tree of 15 Globs: 1.76M → 1.54M ops/s): C2 then inlines the child's whole
+generated `call` into the parent's, and the grandchild's into that, until `NodeCountInliningCutoff` cuts the
+tree off partway down. The unfoldable field was acting as an inlining *barrier*, and a barrier is what you want
+where a whole sub-tree hangs off the call. Fold leaves; keep a boundary between compilation units.
+
+Watch out for one trap when converting:
+`GlobType.getGetAccessor` is `<T extends GlobGetAccessor> T`, so a convenience constructor delegating
+`this(number, field.getGlobType().getGetAccessor(field))` resolves to *itself* — cast the accessor.
+
+Three things not to over-read: the fold propagates only from a constant root, which is what the `static final`
+gives — a hand-rolled table of functions gets nothing at either level; it stops at the usual inlining budget
+(`MaxInlineLevel`, callee size), so it is not an unbounded chain; and the 0.51 ns is a microbenchmark whose
+leaves collapse into arithmetic — what transfers is the inlining *decision*, not the ratio.
+
+This is also the one place where [JEP 500](https://openjdk.org/jeps/500) (*Prepare to Make Final Mean Final*,
+JDK 26) would change something here: nothing at the first level, since a `static final` is already folded and
+already un-mutable by reflection, but making final mean final is what would let HotSpot turn
+`TrustFinalNonStaticFields` on by default and give the ordinary-class case what records get today.
 
 ## How generation works
 
