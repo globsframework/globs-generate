@@ -317,6 +317,13 @@ no GlobType to be "not mine" about. Unset, `get()` keeps answering `DefaultFunct
 the megamorphic dispatch this exists to remove; same order, same fallback, same `endLoop`, same messages, so a
 parser keeps one code path and only the speed changes.
 
+`globs-bin-serialisation`'s reader is the first consumer, and a good model for what adopting this looks like:
+its `FieldReader` extends `MutableFunctionWrite`, its `CodedInputStream` *is* the `CallAtWrite` (the tag it
+reads names the next function, `END_GLOB` is the `endLoop`), the proto field numbers are the keys and
+`UnknownFieldReader` the fallback. Worth **+17 %** on both its read benchmarks. Note it asks `getGenerated()`
+rather than `get()`: it already dispatches through an array indexed by field number, which beats the looped
+`DefaultFunctionCallerWrite` and its binary search, so the loop is not the fallback it wants.
+
 `GeneratedCallerWrite` emits `while ((next = callAt.getNextToCall()) != endLoop) switch (next) { … }`, the
 `endLoop` test *before* the switch — so that value never dispatches, even when it is also a key.
 `GeneratedCallerWriteAll` unrolls the array. Either way each entry gets its own `GETSTATIC` +
