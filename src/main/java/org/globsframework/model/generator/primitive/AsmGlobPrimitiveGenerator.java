@@ -36,6 +36,8 @@ public class AsmGlobPrimitiveGenerator {
     }
 
     /**
+     * Generates the primitive-flavour Glob class of a type and its factory, and returns that factory.
+     *
      * @param generateAccessors when false the factory gets the doGet/doSet-based accessors instead of one
      *                          generated class per field and direction. See GenerationOption.
      */

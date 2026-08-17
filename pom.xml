@@ -70,7 +70,7 @@
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>3.12.0</version>
+                        <!-- version and doclint configuration in build/plugins -->
                         <executions>
                             <execution>
                                 <id>attach-javadocs</id>
@@ -124,12 +124,6 @@
                     <target>21</target>
                     <!--                    <compilerArgs>&#45;&#45;enable-preview</compilerArgs>-->
                     <!--                    <compilerArgs>&#45;&#45;enable-preview</compilerArgs>-->
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.openjdk.jmh</groupId>
@@ -137,6 +131,20 @@
                             <version>1.37</version>
                         </path>
                     </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.12.0</version>
+                <!-- No goal is bound here : this only carries the configuration of the release profile's
+                     attach-javadocs execution, and of a javadoc:javadoc run from the command line.
+                     doclint keeps every group that checks what is written (reference, html, syntax,
+                     accessibility) and drops `missing`, which asks for a comment and an @param/@return on
+                     every public member : the public surface here is bytecode plumbing behind the
+                     GlobFactoryService SPI, documented in prose where it says something. -->
+                <configuration>
+                    <doclint>all,-missing</doclint>
                 </configuration>
             </plugin>
             <plugin>

@@ -24,9 +24,9 @@ import static org.objectweb.asm.Opcodes.*;
  * The point is not to save the loop — it is to give the JVM one call site per field instead of one for all
  * of them. A {@code static final} read is a constant to the JIT, so each {@code INVOKEINTERFACE call} sees a
  * single receiver type and inlines, where the loop of a hand-written serializer sees every function of every
- * field of every type and stays megamorphic. That is also why a class is emitted per {@link #create} rather
- * than per type : two callers over the same type hold different functions, and sharing the class would put
- * them back on the same call sites.
+ * field of every type and stays megamorphic. That is also why a class is emitted per
+ * {@link GenerateCaller#create} rather than per type : two callers over the same type hold different
+ * functions, and sharing the class would put them back on the same call sites.
  * <p>
  * Like {@link AsmAccessorGenerator} this reads the value fields and the masks of the generated Glob straight
  * out of another package (they are {@code public} for exactly that reason), and for the same reason it is
