@@ -5,10 +5,10 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.generate.read.DefaultFunctionCaller;
-import org.globsframework.core.model.generate.read.FieldValueFunction;
-import org.globsframework.core.model.generate.read.GenerateCaller;
-import org.globsframework.core.model.generate.read.GeneratedFunctionCaller;
+import org.globsframework.core.model.caller.LoopFromGlobCaller;
+import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
+import org.globsframework.core.model.caller.FromGlobCaller;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  * DefaultGlob32, a long for DefaultGlob64, one of two longs (shifted by index-64) for DefaultGlob128, a
  * BitSet above that. A wrong shift is a wrong answer for one field, silently.
  * <p>
- * {@link GeneratedCallerTest} covers the last three. The first one is unreachable in a normal JVM :
+ * {@link GeneratedFromGlobCallerTest} covers the last three. The first one is unreachable in a normal JVM :
  * DefaultGlobFactory picks DefaultGlob32 only when {@code gfw.minSize <= 32}, and that is a static final read
  * once from a system property. Hence a fork — and since the fork costs the same for one shape or four, it
  * checks all four, which also pins the class DefaultGlobFactory picks at each size.
@@ -38,7 +38,7 @@ public class DefaultGlobCallerShapesTest {
             GlobType type = declare("Shape" + count, count);
             MutableGlob glob = fill(type, count);
             List<String> generated = trace(AsmCallerGenerator.forDefaultGlob(type).create("shapes", recorder()), glob);
-            List<String> looped = trace(new DefaultFunctionCaller<>(type, recorder()), glob);
+            List<String> looped = trace(new LoopFromGlobCaller<>(type, recorder()), glob);
             System.out.println(count + " " + type.instantiate().getClass().getSimpleName()
                                + " " + (generated.equals(looped) ? "OK" : "MISMATCH " + firstDiff(looped, generated)));
         }
@@ -112,9 +112,9 @@ public class DefaultGlobCallerShapesTest {
         };
     }
 
-    private static GenerateCaller.GetFieldValueFunction<List<String>, Void> recorder() {
-        return new GenerateCaller.GetFieldValueFunction<>() {
-            public <T> FieldValueFunction<T, List<String>, Void> create(Field field) {
+    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
+        return new FromGlobCallerFactory.Functions<>() {
+            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
                 String name = field.getName();
                 return (isSet, isNull, value, ctx1, ctx2) ->
                         ctx1.add(name + "|" + isSet + "|" + isNull + "|" + value);
@@ -122,7 +122,7 @@ public class DefaultGlobCallerShapesTest {
         };
     }
 
-    private static List<String> trace(GeneratedFunctionCaller<List<String>, Void> caller, MutableGlob glob) {
+    private static List<String> trace(FromGlobCaller<List<String>, Void> caller, MutableGlob glob) {
         List<String> seen = new ArrayList<>();
         caller.call(glob, seen, null);
         return seen;

@@ -5,12 +5,12 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.generate.read.FieldValueFunction;
-import org.globsframework.core.model.generate.read.GenerateCaller;
-import org.globsframework.core.model.generate.write.CallAtWrite;
-import org.globsframework.core.model.generate.write.DefaultFunctionCallerWrite;
-import org.globsframework.core.model.generate.read.GlobGenerateFactory;
-import org.globsframework.core.model.generate.write.MutableFunctionWrite;
+import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
+import org.globsframework.core.model.caller.KeySource;
+import org.globsframework.core.model.caller.LoopToGlobCallerFactory;
+import org.globsframework.core.model.caller.CallerGlobFactory;
+import org.globsframework.core.model.caller.ToGlobFunction;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.junit.jupiter.api.Assertions;
@@ -53,7 +53,7 @@ public class GeneratedCallerIdentityTest {
             System.out.println(type.getGlobFactory().getClass().getName());
             System.out.println(type.getGlobFactory().getGetValueAccessor(field).getClass().getName());
             System.out.println(type.getGlobFactory().getSetValueAccessor(field).getClass().getName());
-            System.out.println(((GlobGenerateFactory) type.getGlobFactory())
+            System.out.println(((CallerGlobFactory) type.getGlobFactory())
                     .create("binser.write", recorder()).getClass().getName());
             return;
         }
@@ -66,7 +66,7 @@ public class GeneratedCallerIdentityTest {
         System.out.println(AsmCallerWriteGenerator.INSTANCE
                 .create("binser.read", functions(1, 2, 5), null, -1).getClass().getName());
         System.out.println(AsmCallerWriteGenerator.INSTANCE
-                .create("binser.readAll", new MutableFunctionWrite[]{write(), write(), write()})
+                .create("binser.readAll", new ToGlobFunction[]{write(), write(), write()})
                 .getClass().getName());
         System.out.println(AsmCallerGenerator.forDefaultGlob(declare("Identity", 20))
                 .create("binser.write", recorder()).getClass().getName());
@@ -172,7 +172,7 @@ public class GeneratedCallerIdentityTest {
     /** Ignored by the loop, but refused by it too : a name has to be there before a JVM starts generating. */
     @Test
     public void aCallerWithoutANameIsRefusedByTheGeneratorAndByTheLoop() {
-        for (var factory : List.of(AsmCallerWriteGenerator.INSTANCE, DefaultFunctionCallerWrite.INSTANCE)) {
+        for (var factory : List.of(AsmCallerWriteGenerator.INSTANCE, LoopToGlobCallerFactory.INSTANCE)) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> factory.create(null, functions(1), null, -1), factory.getClass().getName());
             Assertions.assertThrows(IllegalArgumentException.class,
@@ -182,7 +182,7 @@ public class GeneratedCallerIdentityTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> AsmCallerGenerator.forDefaultGlob(type).create(null, recorder()));
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> GenerateCaller.callerFor(null, type, recorder()));
+                () -> FromGlobCallerFactory.callerFor(null, type, recorder()));
     }
 
     private static String name(Object caller) {
@@ -223,22 +223,22 @@ public class GeneratedCallerIdentityTest {
         return builder.build();
     }
 
-    private static SortedMap<Integer, MutableFunctionWrite<Void, Void, Void>> functions(int... keys) {
-        SortedMap<Integer, MutableFunctionWrite<Void, Void, Void>> functions = new TreeMap<>();
+    private static SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions(int... keys) {
+        SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions = new TreeMap<>();
         for (int key : keys) {
             functions.put(key, write());
         }
         return functions;
     }
 
-    private static MutableFunctionWrite<Void, Void, Void> write() {
+    private static ToGlobFunction<Void, Void, Void> write() {
         return (MutableGlob data, Void ctx1, Void ctx2, Void ctx3) -> {
         };
     }
 
-    private static GenerateCaller.GetFieldValueFunction<List<String>, Void> recorder() {
-        return new GenerateCaller.GetFieldValueFunction<>() {
-            public <T> FieldValueFunction<T, List<String>, Void> create(Field field) {
+    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
+        return new FromGlobCallerFactory.Functions<>() {
+            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
                 return (isSet, isNull, value, ctx1, ctx2) -> {
                 };
             }

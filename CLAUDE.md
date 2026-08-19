@@ -29,7 +29,7 @@ Online resolution needs `mvn -s settings.xml …` with `$GH_MAVEN_REGISTRY_USER`
 `$GH_MAVEN_REGISTRY_ACCESS_TOKEN` (this is what the GitHub workflow runs).
 
 The JMH benchmarks in `generated/perf` (`SerializerPerf` glob serialization vs kryo, `AccessorPerf`,
-`VisitorUnrollPerf`, `CallerPerf`, `CallerWritePerf`) have no `exec` binding; run them by hand:
+`VisitorUnrollPerf`, `FromGlobCallerPerf`, `ToGlobCallerPerf`) have no `exec` binding; run them by hand:
 
 ```bash
 mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -150,37 +150,37 @@ Constraints that fall out of generating accessors, all of them load-time failure
 
 ## Generated callers
 
-The second thing a generated type offers. **The interfaces are not here**: `GenerateCaller`,
-`GeneratedFunctionCaller`, `FieldValueFunction`, `GlobGenerateFactory` and `DefaultFunctionCaller` live in
-core, in `org.globsframework.core.model.generate.read`, precisely so that `globs-bin-serialisation` and
+The second thing a generated type offers. **The interfaces are not here**: `FromGlobCallerFactory`,
+`FromGlobCaller`, `FromGlobFunction`, `CallerGlobFactory` and `LoopFromGlobCaller` live in
+core, in `org.globsframework.core.model.caller`, precisely so that `globs-bin-serialisation` and
 `globs-grpc` can be written against them without depending on this module. What is here is the only
 implementation, `AsmCallerGenerator`, reached through `AbstractGeneratedGlobFactory` which implements
-`GlobGenerateFactory` — so the way in is a cast:
+`CallerGlobFactory` — so the way in is a cast:
 
 ```java
-GeneratedFunctionCaller<Out, Void> caller = type.getGlobFactory() instanceof GlobGenerateFactory generate
+FromGlobCaller<Out, Void> caller = type.getGlobFactory() instanceof CallerGlobFactory generate
         ? generate.create("mycodec.write", field -> functionFor(field))  // one call per field
         : null;                                          // not generated : see callerFor below
 caller.call(glob, out, null);                            // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
 ```
 
-but the cast is not what a downstream module should write. **`GenerateCaller.callerFor(name, type, functions)`** does
-it and falls back to a `DefaultFunctionCaller` — the plain loop over the same function table, through
+but the cast is not what a downstream module should write. **`FromGlobCallerFactory.callerFor(name, type, functions)`** does
+it and falls back to a `LoopFromGlobCaller` — the plain loop over the same function table, through
 `Glob.getValue` — for a type that has no generated class (module not installed, `mode none`, or more than 64
 fields). Same behaviour, same order, same isSet/isNull/value, so the caller keeps one code path and only the
 speed changes; `theLoopedCallerAndTheGeneratedOneAgree` is what holds the two to that.
 
-`AsmCallerGenerator` emits, per `create` call, a class with one `public static final FieldValueFunction` per
+`AsmCallerGenerator` emits, per `create` call, a class with one `public static final FromGlobFunction` per
 field (`fn_<index>`, filled in `<clinit>` from `getFunctions(<its own class name>)`) and a `call` unrolled
 over them. The point is **not** saving the loop: a `static final` read is a JIT constant, so each `INVOKEINTERFACE call` sees a
 single receiver and inlines, where the one call site of a hand-written loop sees every function of every
 field of every type and stays megamorphic. That is what `globs-bin-serialisation` and `globs-grpc` pay today.
 
-Measured with `CallerPerf` (JMH, all fields set, the same four function classes on every arm), against the
-`DefaultFunctionCaller` fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
+Measured with `FromGlobCallerPerf` (JMH, all fields set, the same four function classes on every arm), against the
+`LoopFromGlobCaller` fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
 (18.5 → 86.8, 3.29 → 13.6, 1.35 → 6.69 M ops/s) and **×4.2 / ×4.4 / ×4.0** on the primitive one
 (18.1 → 76.0, 3.25 → 14.4, 1.32 → 5.34). A hand-rolled loop over a `GlobGetAccessor` table plus a
-`FieldValueFunction` table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
+`FromGlobFunction` table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
 0.96 object), so there is nothing to lose in adopting `callerFor` even for the types that fall back.
 
 Consequences of that design, all deliberate:
@@ -192,7 +192,7 @@ Consequences of that design, all deliberate:
   to the generated Glob class: a Glob of that type from another factory is a `ClassCastException`. Same bet
   the generated accessors already make.
 - it is therefore **defined in the same loader as that Glob class**, `GeneratedClassLoader` — it used to
-  need a child loader of the Glob's, which sharing one loader removed. The `GenerateCaller` still travels to
+  need a child loader of the Glob's, which sharing one loader removed. The `FromGlobCallerFactory` still travels to
   `AbstractGeneratedGlobFactory`'s constructor through the `PENDING` map, exactly like the `AccessorProvider`
   next to it, because what the factory cannot know on its own is now the Glob class and its flavour rather
   than the loader. That map is keyed by the **name
@@ -203,12 +203,12 @@ Consequences of that design, all deliberate:
   & 1` — branchless, and saying the same thing as the Glob: `isNull` is what `doGet` answers null for, so a
   field that was never set is `isSet false, isNull true, value null`. On the object flavour `isNull` is the
   value field being null, which holds because `unset` does `doSet(field, null)` first.
-- **the value is boxed**, since `FieldValueFunction<T, D, E>` is generic. The box normally dies in escape
+- **the value is boxed**, since `FromGlobFunction<T, D, E>` is generic. The box normally dies in escape
   analysis once the monomorphic call inlines, but it is a real allocation whenever it does not; native
   variants of the interface would be the way out if that ever shows up in a profile.
 - `AsmCallerGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS` with the `getCommonSuperClass` short-circuit, for
   the same reason as `AsmAccessorGenerator`.
-- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/generate/read/`**
+- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/caller/`**
   — in `AsmCallerGenerator` (`FUNCTION`, `CALLER`) and in the `getCallerGenerator` / super-constructor
   descriptors of both factory generators. Moving them again without following through there is a
   `NoSuchMethodError` at load time, not a compile error.
@@ -240,16 +240,16 @@ The mask is read the way its own class writes it, so the emitted shape is **per 
 `BitSet.get(int)` on the field. A wrong shift is a wrong answer for one field, silently, which is what
 `DefaultGlobCallerShapesTest` is for: it forks a JVM with `-Dgfw.minSize=32` (the only way to reach
 `DefaultGlob32`, since that floor is a static final read once) and holds all four shapes against
-`DefaultFunctionCaller`. `isNull` is the value being null, which is precisely what core answers
+`LoopFromGlobCaller`. `isNull` is the value being null, which is precisely what core answers
 (`Glob.isNull(field)` is `doCheckedGet(field) == null`). `forDefaultGlob` returns **null** for a type whose
 factory does not build an `AbstractDefaultGlob`, which is the signal to fall back.
 
-Measured with `CallerPerf`, all callers over the same functions, at 4 / 20 / 40 fields (M ops/s):
+Measured with `FromGlobCallerPerf`, all callers over the same functions, at 4 / 20 / 40 fields (M ops/s):
 
 | walk | 4 | 20 | 40 |
 | --- | --- | --- | --- |
 | loop over accessors + functions | 23.0 | 4.57 | 2.30 |
-| `DefaultFunctionCaller` | 18.9 | 3.97 | 2.00 |
+| `LoopFromGlobCaller` | 18.9 | 3.97 | 2.00 |
 | **generated over DefaultGlob** | **76.7** | **14.3** | **6.09** |
 | generated over a generated Glob (object) | 91.1 | 15.8 | 6.77 |
 
@@ -262,12 +262,12 @@ It is wired in through core's extension point, the same way the generators thems
 the command line:
 
 ```
--Dglobs.caller=org.globsframework.model.generator.AsmCallerGeneratorService
+-Dglobs.caller.fromGlob=org.globsframework.model.generator.AsmCallerGeneratorService
 ```
 
-`AsmCallerGeneratorService` is a two-line `GenerateCallerService` returning `forDefaultGlob(type)`, and
-`GenerateCaller.callerFor` asks it for any type whose factory is not a `GlobGenerateFactory`, falling back to
-`DefaultFunctionCaller` when it answers null. So a codec keeps calling `callerFor` and nothing else, and the
+`AsmCallerGeneratorService` is a two-line `FromGlobCallerService` returning `forDefaultGlob(type)`, and
+`FromGlobCallerFactory.callerFor` asks it for any type whose factory is not a `CallerGlobFactory`, falling back to
+`LoopFromGlobCaller` when it answers null. So a codec keeps calling `callerFor` and nothing else, and the
 two properties are independent: with `globs.builder` set as well, a generated type is served by its own
 factory and the service only ever sees what fell back — installing it cannot downgrade anything
 (`theFactoryStillWinsOverTheServiceForAGeneratedType`).
@@ -275,67 +275,67 @@ factory and the service only ever sees what fell back — installing it cannot d
 | what | property | value |
 | --- | --- | --- |
 | generate the Globs | `globs.builder` | a `GlobFactoryService` class name |
-| generate the callers of the Globs core builds | `globs.caller` | a `GenerateCallerService` class name |
-| generate the callers a parser writes with | `globs.callerWrite` | a `GenerateCallerWriteService` class name |
+| generate the callers of the Globs core builds | `globs.caller.fromGlob` | a `FromGlobCallerService` class name |
+| generate the callers a parser writes with | `globs.caller.toGlob` | a `ToGlobCallerService` class name |
 
-Setting `globs.caller` alone is the configuration for an application that measured `globs.builder` to be a
+Setting `globs.caller.fromGlob` alone is the configuration for an application that measured `globs.builder` to be a
 loss on its own code — see the `doGet` sizes above — but still wants its codecs to walk a Glob without a
 megamorphic call per field.
 
-- the fallback is a **normal public class in core**, not a second generator: `DefaultFunctionCaller` takes
-  the `GlobType` and the `GetFieldValueFunction` and can be built for any type, generated or not. Its loop is
+- the fallback is a **normal public class in core**, not a second generator: `LoopFromGlobCaller` takes
+  the `GlobType` and the `Functions` and can be built for any type, generated or not. Its loop is
   the megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative,
-  and core's `DefaultFunctionCallerTest` is the reference the generated one is held to.
+  and core's `LoopFromGlobCallerTest` is the reference the generated one is held to.
 
 Unlike the accessors, this is not on by default anywhere: nothing in this module calls `create`, and
-`GeneratedCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
+`GeneratedFromGlobCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
 `fn_i` statics being `static final` on a fresh class per caller, and `callerFor` picking the right one on
 both sides of the 64-field limit).
 
 ### The other direction : writing into a MutableGlob
 
-`AsmCallerWriteGenerator` is the generating implementation of `GeneratedFunctionCallerWrite`
-(`org.globsframework.core.model.generate.write`, next to `GeneratedCallerWrite`, `GeneratedCallerWriteAll`,
-`CallAtWrite`, `MutableFunctionWrite` and core's looped `DefaultFunctionCallerWrite`), for the parsing side: a
-`MutableFunctionWrite` reads whatever comes next in the input and sets it on the Glob. Two shapes, one class
+`AsmCallerWriteGenerator` is the generating implementation of `ToGlobCallerFactory`
+(`org.globsframework.core.model.caller`, next to `ToGlobCaller`, `ToGlobCallerAll`,
+`KeySource`, `ToGlobFunction` and core's looped `LoopToGlobCallerFactory`), for the parsing side: a
+`ToGlobFunction` reads whatever comes next in the input and sets it on the Glob. Two shapes, one class
 emitted per `create` call, both holding their functions in `public static final` fields:
 
 ```java
-GeneratedFunctionCallerWrite factory = GeneratedFunctionCallerWrite.get();   // this, or core's loop
-SortedMap<Integer, MutableFunctionWrite<In, Void, Void>> functions = new TreeMap<>();  // key -> what to write
-GeneratedCallerWrite<In, Void, Void> caller = factory.create("myformat.read." + type.getName(),
+ToGlobCallerFactory factory = ToGlobCallerFactory.get();   // this, or core's loop
+SortedMap<Integer, ToGlobFunction<In, Void, Void>> functions = new TreeMap<>();  // key -> what to write
+ToGlobCaller<In, Void, Void> caller = factory.create("myformat.read." + type.getName(),
                                                             functions, skipUnknown, -1);
 caller.call(parser, type.instantiate(), in, null, null);   // loops until parser answers -1
 
-GeneratedCallerWriteAll<In, Void, Void> all = factory.create("myformat.readAll", functionArray);
+ToGlobCallerAll<In, Void, Void> all = factory.create("myformat.readAll", functionArray);
 all.call(glob, in, null, null);                            // every function once, in array order
 ```
 
 It is wired in through core's extension point, the same way everything else here is — a class name on the
-command line, and `AsmCallerWriteGeneratorService` is the two-line `GenerateCallerWriteService` behind it:
+command line, and `AsmCallerWriteGeneratorService` is the two-line `ToGlobCallerService` behind it:
 
 ```
--Dglobs.callerWrite=org.globsframework.model.generator.AsmCallerWriteGeneratorService
+-Dglobs.caller.toGlob=org.globsframework.model.generator.AsmCallerWriteGeneratorService
 ```
 
 Independent of the other two properties, and unlike them it answers for the whole process at once — there is
-no GlobType to be "not mine" about. Unset, `get()` keeps answering `DefaultFunctionCallerWrite`, whose loop is
+no GlobType to be "not mine" about. Unset, `get()` keeps answering `LoopToGlobCallerFactory`, whose loop is
 the megamorphic dispatch this exists to remove; same order, same fallback, same `endLoop`, same messages, so a
 parser keeps one code path and only the speed changes.
 
 `globs-bin-serialisation`'s reader is the first consumer, and a good model for what adopting this looks like:
-its `FieldReader` extends `MutableFunctionWrite`, its `CodedInputStream` *is* the `CallAtWrite` (the tag it
+its `FieldReader` extends `ToGlobFunction`, its `CodedInputStream` *is* the `KeySource` (the tag it
 reads names the next function, `END_GLOB` is the `endLoop`), the proto field numbers are the keys and
-`UnknownFieldReader` the fallback. Worth **+17 %** on both its read benchmarks. Note it asks `getGenerated()`
+`UnknownFieldReader` the fallback. Worth **+17 %** on both its read benchmarks. Note it asks `generated()`
 rather than `get()`: it already dispatches through an array indexed by field number, which beats the looped
-`DefaultFunctionCallerWrite` and its binary search, so the loop is not the fallback it wants.
+`LoopToGlobCallerFactory` and its binary search, so the loop is not the fallback it wants.
 
-`GeneratedCallerWrite` emits `while ((next = callAt.getNextToCall()) != endLoop) switch (next) { … }`, the
+`ToGlobCaller` emits `while ((next = keySource.nextKey()) != endLoop) switch (next) { … }`, the
 `endLoop` test *before* the switch — so that value never dispatches, even when it is also a key.
-`GeneratedCallerWriteAll` unrolls the array. Either way each entry gets its own `GETSTATIC` +
-`INVOKEINTERFACE`, which is the whole point, exactly as on the read side.
+`ToGlobCallerAll` unrolls the array. Either way each entry gets its own `GETSTATIC` +
+`INVOKEINTERFACE`, which is the whole point, exactly as on the from-Glob side.
 
-What is different from the read side, and worth knowing before reaching for one:
+What is different from the from-Glob side, and worth knowing before reaching for one:
 
 - **nothing reads a Glob's layout.** The functions write through `MutableGlob`, so there is no `GlobType` to
   walk, no `CHECKCAST` to a generated Glob class, and no ClassLoader to borrow from a factory — the emitted
@@ -347,30 +347,30 @@ What is different from the read side, and worth knowing before reaching for one:
   (a map may carry its own comparator, and a `lookupswitch` wants them ascending). Dense keys get a
   `tableswitch`, sparse ones a `lookupswitch`, on javac's rule of thumb (`useTableSwitch`);
 - the **fallback is optional**: null means an unknown key is a bug, and the default branch throws rather than
-  skipping silently — through `GeneratedFunctionCallerWrite.unknownKey(int)`, *core's* static and not one of
+  skipping silently — through `ToGlobCallerFactory.unknownKey(int)`, *core's* static and not one of
   ours, so that the loop and the generated switch fail identically. It is emitted as an `INVOKESTATIC` on an
   interface (`itf` true), which is only legal from class file 52 on — the emitted classes are V17;
-- there is **no `GlobGenerateFactory` to ask**, generation not depending on the type, so the resolution has
-  two sources instead of three: `GeneratedFunctionCallerWrite.get()` asks the service, then falls back to the
+- there is **no `CallerGlobFactory` to ask**, generation not depending on the type, so the resolution has
+  two sources instead of three: `ToGlobCallerFactory.get()` asks the service, then falls back to the
   loop.
 
-Measured with `CallerWritePerf` (JMH, one pass = one record: every entry reads its value from a
-`SerializedInput` and sets it on a `MutableGlob`, the same four `MutableFunctionWrite` classes on every arm),
+Measured with `ToGlobCallerPerf` (JMH, one pass = one record: every entry reads its value from a
+`SerializedInput` and sets it on a `MutableGlob`, the same four `ToGlobFunction` classes on every arm),
 at 4 / 20 / 40 entries, M ops/s — the 40 column at `-f 2 -wi 5 -i 8`, where the surprise is:
 
 | pass | 4 | 20 | 40 |
 | --- | --- | --- | --- |
 | dense keys, hand loop over an array | 19.5 | 3.89 | 1.90 |
-| dense keys, `DefaultFunctionCallerWrite` | 17.4 | 3.30 | 1.58 |
+| dense keys, `LoopToGlobCallerFactory` | 17.4 | 3.30 | 1.58 |
 | **dense keys, generated** (tableswitch) | **32.0** | **4.40** | **1.62** |
 | sparse keys, hand loop over a `HashMap` | 15.8 | 3.23 | 1.54 |
-| sparse keys, `DefaultFunctionCallerWrite` | 17.4 | 3.27 | 1.49 |
+| sparse keys, `LoopToGlobCallerFactory` | 17.4 | 3.27 | 1.49 |
 | **sparse keys, generated** (lookupswitch) | **31.4** | **4.27** | **2.09** |
 | every entry, hand loop over the array | 21.0 | 4.23 | 2.14 |
-| every entry, `DefaultFunctionCallerWrite` | 20.9 | 4.24 | 2.18 |
+| every entry, `LoopToGlobCallerFactory` | 20.9 | 4.24 | 2.18 |
 | **every entry, generated** (unrolled) | **34.6** | **7.24** | **2.79** |
 
-Read this before assuming the write side pays like the read side does:
+Read this before assuming the to-Glob side pays like the from-Glob side does:
 
 - **the win is real but small, and it shrinks with the entry count**: ×1.6 at 4 entries, ×1.13 at 20, against
   the hand loop. Where the read caller wins ×4 or more, here every turn already does real work (parse a
@@ -380,18 +380,18 @@ Read this before assuming the write side pays like the read side does:
   lookupswitch arm at the same width still wins ×1.36. The unrolled `call` is one big method: past a certain
   number of cases the inlining budget is gone and what is left is an indirect jump through a 40-entry table,
   which predicts worse than the binary search of a lookupswitch over a key sequence that repeats record after
-  record. So `globs.callerWrite` is a win for narrow records and for sparse keys, and worth *measuring* for a
+  record. So `globs.caller.toGlob` is a win for narrow records and for sparse keys, and worth *measuring* for a
   wide record with dense ones;
-- **`GeneratedCallerWriteAll` is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no CallAt, just
+- **`ToGlobCallerAll` is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no CallAt, just
   the unrolled calls. A format whose entries are all there and always in the same order should use it;
-- `DefaultFunctionCallerWrite` is at or just under the hand loop everywhere, which is what a fallback should
-  be : nothing is lost by going through `GeneratedFunctionCallerWrite.get()` on a JVM that installs nothing.
+- `LoopToGlobCallerFactory` is at or just under the hand loop everywhere, which is what a fallback should
+  be : nothing is lost by going through `ToGlobCallerFactory.get()` on a JVM that installs nothing.
 
-`GeneratedCallerWriteTest` pins it: both switch shapes over 200 keys each, negative keys, a reversed
+`GeneratedToGlobCallerTest` pins it: both switch shapes over 200 keys each, negative keys, a reversed
 comparator, the fallback and its absence, `endLoop` shadowing a key, the empty map and the empty array, the
 class-per-`create` / `static final` invariants, the property wiring, and
 `theLoopedCallerAndTheGeneratedOneAgree` — same trace and same exception message as
-`DefaultFunctionCallerWrite` over the same script.
+`LoopToGlobCallerFactory` over the same script.
 
 ### The second level : declare the functions as records or lambdas
 
@@ -417,7 +417,7 @@ Measured on JDK 27-ea with four collaborator classes (`-XX:+PrintInlining` in th
 | an ordinary class, `-XX:+UnlockExperimentalVMOptions -XX:+TrustFinalNonStaticFields` | `inline (hot)` | 0.53 |
 | a table of functions (first level not constant either) | nothing propagates, flag or not | 10.90 |
 
-So: **a `FieldValueFunction` or a `MutableFunctionWrite` written as a named class with final fields throws
+So: **a `FromGlobFunction` or a `ToGlobFunction` written as a named class with final fields throws
 away half of what the generator bought**; the same code as a `record` (or a lambda) keeps it. Both modules that adopted the caller have been converted, each measured on its own
 `GeneratedGlobPerfTest.write` OBJECT, five forks per arm, A/B/A: `globs-grpc`'s `ProtoBufFieldSerializer`
 leaves, **+4 %** (224k → 233-235k), and `globs-bin-serialisation`'s `FieldWriter`s, **+6.7 %**
@@ -448,14 +448,14 @@ already un-mutable by reflection, but making final mean final is what would let 
 
 ## Naming : the same class from one run to the next
 
-Both caller generators take a **name from the caller** — `create(name, …)`, `GenerateCaller.callerFor(name,
+Both caller generators take a **name from the caller** — `create(name, …)`, `FromGlobCallerFactory.callerFor(name,
 type, fns)` — and it is not decoration: it is what the emitted class is named after.
 
 The reason is AOT (JDK 24's AOT cache and what builds on it). A class of a user-defined class loader is
 matched against the cache on its **name and its bytes**, so a class named from a counter (`GeneratedGlob_7`,
-`GeneratedCallerWrite_3`) matches nothing: the number depends only on the order types and codecs happened to
+`ToGlobCaller_3`) matches nothing: the number depends only on the order types and codecs happened to
 be built in. The generator can supply the type and the shape it generates over, but not what the caller *is* —
-hence `CallerName` in core (`org.globsframework.core.model.generate`), where the contract lives: one purpose
+hence `CallerName` in core (`org.globsframework.core.model.caller`), where the contract lives: one purpose
 per code path that builds callers (`"binser.write"`), constant in the source. A name built from something
 that varies per run is accepted and silently gives up the identity it asked for. Null or blank is refused —
 in core, so the loop refuses exactly what the generators refuse and a name cannot be missing on one
@@ -469,17 +469,17 @@ deployment and required on another.
   string dropped the very end that told two callers apart, and the package repeats over every type of an
   application anyway. Both are whole in the digest, so nothing is lost by cutting here;
 - a **digest** (SHA-256, 12 hex, lower case) of *everything the emitted bytes depend on*: the purpose, the
-  type name, the Glob class the `CHECKCAST` names, the flavour, the field layout on the read side; the keys,
-  the presence of a fallback and the `endLoop` value on the write side — plus a `FORMAT` constant to bump by
+  type name, the Glob class the `CHECKCAST` names, the flavour, the field layout on the from-Glob side; the keys,
+  the presence of a fallback and the `endLoop` value on the to-Glob side — plus a `FORMAT` constant to bump by
   hand whenever the emitted bytecode changes in a way none of those describe.
 
-So: `org.globsframework.gen.write.Caller_binser_read_84fc324d4beb`,
-`org.globsframework.gen.read.Caller_binser_write_the_who_DummyObject_a23f6dfead26` — 60 to 80 characters,
+So: `org.globsframework.gen.toglob.Caller_binser_read_84fc324d4beb`,
+`org.globsframework.gen.fromglob.Caller_binser_write_the_who_DummyObject_a23f6dfead26` — 60 to 80 characters,
 against 90 to 125 for the same names spelled out in full. Length is worth this much attention because a
 class name is what a flame graph shows, and because the day these classes are written to disk — a bytes
 cache, or the build-time generation that would make them ordinary classpath classes — the name **is** a file
 path, where 255 bytes per component is a limit rather than an annoyance. One package per side
-(`gen.read`, `gen.write`), and the prefix says the shape (`Caller`, `CallerAll`) since the package says the
+(`gen.fromglob`, `gen.toglob`), and the prefix says the shape (`Caller`, `CallerAll`) since the package says the
 rest; which flavour of Glob a read caller walks lives in the digest, not in the package it used to pick.
 
 The invariant the digest buys is that **two runs can only produce the same name for byte-identical
@@ -506,7 +506,7 @@ org.globsframework.gen.obj.Glob_Family_634101968fda
 org.globsframework.gen.obj.Factory_Family_634101968fda
 org.globsframework.gen.obj.Get_Family_634101968fda_3
 org.globsframework.gen.obj.Set_Family_634101968fda_3
-org.globsframework.gen.read.Caller_binser_write_Family_a7f36f8ef1a3
+org.globsframework.gen.fromglob.Caller_binser_write_Family_a7f36f8ef1a3
 ```
 
 A family's digest covers the flavour, the full type name, the layout (index, sanitised name and `DataType`

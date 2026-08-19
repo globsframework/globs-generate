@@ -14,7 +14,7 @@ import org.globsframework.model.generator.AsmFactoryGenerator;
 import org.globsframework.model.generator.FieldVisitorToVisitName;
 import org.globsframework.model.generator.GeneratedClassLoader;
 import org.globsframework.model.generator.GeneratedName;
-import org.globsframework.core.model.generate.read.GenerateCaller;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
@@ -35,7 +35,7 @@ public class AsmGlobObjectGenerator {
     // create, so nothing here keeps a GlobType alive past the generation that registered it.
     private static final Map<String, Pending> PENDING = new ConcurrentHashMap<>();
 
-    private record Pending(GlobType type, AccessorProvider accessors, GenerateCaller callers) {
+    private record Pending(GlobType type, AccessorProvider accessors, FromGlobCallerFactory callers) {
     }
 
     public static GlobFactory create(GlobType globType) {
@@ -370,7 +370,7 @@ public class AsmGlobObjectGenerator {
     }
 
     /** Called from the generated factory's {@code <init>} too, and handed straight to the super constructor. */
-    public static GenerateCaller getCallerGenerator(String key) {
+    public static FromGlobCallerFactory getCallerGenerator(String key) {
         return pending(key).callers();
     }
 
@@ -438,9 +438,9 @@ public class AsmGlobObjectGenerator {
                     "getAccessors", "(Ljava/lang/String;)Lorg/globsframework/model/generator/AccessorProvider;", false);
             methodVisitor.visitLdcInsn(key);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/object/AsmGlobObjectGenerator",
-                    "getCallerGenerator", "(Ljava/lang/String;)Lorg/globsframework/core/model/generate/read/GenerateCaller;", false);
+                    "getCallerGenerator", "(Ljava/lang/String;)Lorg/globsframework/core/model/caller/FromGlobCallerFactory;", false);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
-                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/core/model/generate/read/GenerateCaller;)V", false);
+                    "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/core/model/caller/FromGlobCallerFactory;)V", false);
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(4, 1);
             methodVisitor.visitEnd();

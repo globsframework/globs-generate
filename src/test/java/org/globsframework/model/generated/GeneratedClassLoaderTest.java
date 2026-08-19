@@ -7,10 +7,10 @@ import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.generate.read.FieldValueFunction;
-import org.globsframework.core.model.generate.read.GenerateCaller;
-import org.globsframework.core.model.generate.read.GlobGenerateFactory;
-import org.globsframework.core.model.generate.write.MutableFunctionWrite;
+import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
+import org.globsframework.core.model.caller.CallerGlobFactory;
+import org.globsframework.core.model.caller.ToGlobFunction;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.globsframework.model.generator.GeneratedClassLoader;
 import org.junit.jupiter.api.AfterEach;
@@ -51,7 +51,7 @@ public class GeneratedClassLoaderTest {
                 factory,
                 factory.getGetValueAccessor(field),
                 factory.getSetValueAccessor(field),
-                ((GlobGenerateFactory) factory).create("loader.read", recorder()),
+                ((CallerGlobFactory) factory).create("loader.read", recorder()),
                 AsmCallerWriteGenerator.INSTANCE.create("loader.write", writeFunctions(), null, -1))) {
             Assertions.assertSame(loader, generated.getClass().getClassLoader(),
                     generated.getClass().getName());
@@ -69,7 +69,7 @@ public class GeneratedClassLoaderTest {
         glob.setValue(type.getFields()[0], "a value");
 
         List<String> seen = new java.util.ArrayList<>();
-        ((GlobGenerateFactory) type.getGlobFactory()).create("loader.read", recorder()).call(glob, seen, null);
+        ((CallerGlobFactory) type.getGlobFactory()).create("loader.read", recorder()).call(glob, seen, null);
 
         Assertions.assertEquals(type.getFieldCount(), seen.size());
         Assertions.assertSame(glob.getClass().getClassLoader(), GeneratedClassLoader.get());
@@ -115,21 +115,21 @@ public class GeneratedClassLoaderTest {
             builder.declareStringField("s" + i);
         }
         GlobType type = builder.build();
-        Assertions.assertInstanceOf(GlobGenerateFactory.class, type.getGlobFactory(),
+        Assertions.assertInstanceOf(CallerGlobFactory.class, type.getGlobFactory(),
                 "nothing was generated : the rest of this test would be vacuous");
         return type;
     }
 
-    private static SortedMap<Integer, MutableFunctionWrite<Void, Void, Void>> writeFunctions() {
-        SortedMap<Integer, MutableFunctionWrite<Void, Void, Void>> functions = new TreeMap<>();
+    private static SortedMap<Integer, ToGlobFunction<Void, Void, Void>> writeFunctions() {
+        SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions = new TreeMap<>();
         functions.put(1, (MutableGlob data, Void c1, Void c2, Void c3) -> {
         });
         return functions;
     }
 
-    private static GenerateCaller.GetFieldValueFunction<List<String>, Void> recorder() {
-        return new GenerateCaller.GetFieldValueFunction<>() {
-            public <T> FieldValueFunction<T, List<String>, Void> create(Field field) {
+    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
+        return new FromGlobCallerFactory.Functions<>() {
+            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
                 String name = field.getName();
                 return (isSet, isNull, value, ctx1, ctx2) -> ctx1.add(name + "=" + value);
             }

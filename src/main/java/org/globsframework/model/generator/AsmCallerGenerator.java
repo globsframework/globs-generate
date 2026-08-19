@@ -2,11 +2,11 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
-import org.globsframework.core.model.generate.CallerName;
-import org.globsframework.core.model.generate.read.FieldValueFunction;
-import org.globsframework.core.model.generate.read.GenerateCaller;
-import org.globsframework.core.model.generate.read.DefaultFunctionCaller;
-import org.globsframework.core.model.generate.read.GeneratedFunctionCaller;
+import org.globsframework.core.model.caller.CallerName;
+import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
+import org.globsframework.core.model.caller.LoopFromGlobCaller;
+import org.globsframework.core.model.caller.FromGlobCaller;
 import org.globsframework.core.model.impl.AbstractDefaultGlob;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
@@ -18,14 +18,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.objectweb.asm.Opcodes.*;
 
 /**
- * Generates the {@link GeneratedFunctionCaller} of one GlobType : a class holding one
- * {@code public static final FieldValueFunction} per field, and a {@code call} unrolled over them.
+ * Generates the {@link FromGlobCaller} of one GlobType : a class holding one
+ * {@code public static final FromGlobFunction} per field, and a {@code call} unrolled over them.
  * <p>
  * The point is not to save the loop — it is to give the JVM one call site per field instead of one for all
  * of them. A {@code static final} read is a constant to the JIT, so each {@code INVOKEINTERFACE call} sees a
  * single receiver type and inlines, where the loop of a hand-written serializer sees every function of every
  * field of every type and stays megamorphic. That is also why a class is emitted per
- * {@link GenerateCaller#create} rather than per type : two callers over the same type hold different
+ * {@link FromGlobCallerFactory#create} rather than per type : two callers over the same type hold different
  * functions, and sharing the class would put them back on the same call sites. The class is named after the
  * purpose the caller gives ({@link CallerName}) and a digest of what it is generated over, so that the same
  * codec over the same type gets the same class name in every run — see {@link GeneratedName}.
@@ -40,13 +40,13 @@ import static org.objectweb.asm.Opcodes.*;
  */
 public class AsmCallerGenerator {
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerGenerator";
-    private static final String FUNCTION = "org/globsframework/core/model/generate/read/FieldValueFunction";
+    private static final String FUNCTION = "org/globsframework/core/model/caller/FromGlobFunction";
     private static final String FUNCTION_DESC = "L" + FUNCTION + ";";
     private static final String FUNCTIONS_DESC = "[" + FUNCTION_DESC;
-    private static final String CALLER = "org/globsframework/core/model/generate/read/GeneratedFunctionCaller";
+    private static final String CALLER = "org/globsframework/core/model/caller/FromGlobCaller";
     private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
     private static final String OBJECT = "Ljava/lang/Object;";
-    private static final String CALLER_PACKAGE = "org/globsframework/gen/read/";
+    private static final String GEN_PACKAGE = "org/globsframework/gen/fromglob/";
 
     // the Glob is cast once into slot 4; 5 and 6 are the per-field scratch (the null flag / the value)
     private static final int GLOB_SLOT = 4;
@@ -57,7 +57,7 @@ public class AsmCallerGenerator {
     // GeneratedName has already made unique, so two creations never race over one entry. Same protocol as
     // the PENDING map of the two generators : the entry lives only for the duration of create, so nothing
     // here keeps a function -- nor the ClassLoader of the generated class -- alive.
-    private static final Map<String, FieldValueFunction[]> PENDING = new ConcurrentHashMap<>();
+    private static final Map<String, FromGlobFunction[]> PENDING = new ConcurrentHashMap<>();
 
     /** How the emitted {@code call} gets isSet / isNull / the value out of the Glob it was cast to. */
     private enum Access {
@@ -70,19 +70,19 @@ public class AsmCallerGenerator {
     }
 
     /**
-     * The GenerateCaller handed to the factory of a generated type. It is built here rather than by the
+     * The FromGlobCallerFactory handed to the factory of a generated type. It is built here rather than by the
      * factory because only the generator knows what it is generating over — the Glob class and its flavour —
      * exactly like the AccessorProvider next to it.
      *
      * @param globInternalName the generated Glob class, whose public fields and masks the caller reads
      * @param primitive        which flavour that Glob is : native fields plus an isNull mask, or boxed ones
      */
-    public static GenerateCaller generatorFor(GeneratedClassLoader globLoader, String globInternalName, GlobType type,
+    public static FromGlobCallerFactory generatorFor(GeneratedClassLoader globLoader, String globInternalName, GlobType type,
                                               boolean primitive) {
         Access access = primitive ? Access.PRIMITIVE : Access.OBJECT;
-        return new GenerateCaller() {
-            public <D, E> GeneratedFunctionCaller<D, E> create(String name, GetFieldValueFunction<D, E> getFieldValueFunction) {
-                return generate(globLoader, globInternalName, type, access, name, getFieldValueFunction);
+        return new FromGlobCallerFactory() {
+            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions) {
+                return generate(globLoader, globInternalName, type, access, name, functions);
             }
         };
     }
@@ -102,9 +102,9 @@ public class AsmCallerGenerator {
      * gaining one Glob class per type.
      *
      * @return null when the type's factory does not build an AbstractDefaultGlob — nothing here can read it,
-     * and a caller of {@link GenerateCaller#callerFor} should fall back to {@link DefaultFunctionCaller}.
+     * and a caller of {@link FromGlobCallerFactory#callerFor} should fall back to {@link LoopFromGlobCaller}.
      */
-    public static GenerateCaller forDefaultGlob(GlobType type) {
+    public static FromGlobCallerFactory forDefaultGlob(GlobType type) {
         Class<?> globClass = type.instantiate().getClass();
         if (!AbstractDefaultGlob.class.isAssignableFrom(globClass)) {
             return null;
@@ -113,24 +113,24 @@ public class AsmCallerGenerator {
         // the concrete Glob is an ordinary core class, so this caller resolves it through the loader's
         // parent -- but it is defined in the same loader as everything else this module generates
         GeneratedClassLoader loader = GeneratedClassLoader.get();
-        return new GenerateCaller() {
-            public <D, E> GeneratedFunctionCaller<D, E> create(String name, GetFieldValueFunction<D, E> getFieldValueFunction) {
-                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, getFieldValueFunction);
+        return new FromGlobCallerFactory() {
+            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions) {
+                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, functions);
             }
         };
     }
 
     @SuppressWarnings("unchecked")
-    private static <D, E> GeneratedFunctionCaller<D, E> generate(GeneratedClassLoader loader, String globInternalName,
+    private static <C1, C2> FromGlobCaller<C1, C2> generate(GeneratedClassLoader loader, String globInternalName,
                                                                  GlobType type, Access access, String name,
-                                                                 GenerateCaller.GetFieldValueFunction<D, E> provider) {
+                                                                 FromGlobCallerFactory.Functions<C1, C2> provider) {
         CallerName.check(name);
         Field[] fields = type.getFields();
-        FieldValueFunction[] functions = new FieldValueFunction[fields.length];
+        FromGlobFunction[] functions = new FromGlobFunction[fields.length];
         for (Field field : fields) {
-            FieldValueFunction<?, D, E> function = provider.create(field);
+            FromGlobFunction<?, C1, C2> function = provider.forField(field);
             if (function == null) {
-                throw new IllegalArgumentException("No FieldValueFunction for " + field.getName()
+                throw new IllegalArgumentException("No FromGlobFunction for " + field.getName()
                                                    + " of " + type.getName());
             }
             functions[field.getIndex()] = function;
@@ -144,7 +144,7 @@ public class AsmCallerGenerator {
         PENDING.put(callerName, functions);
         try {
             // newInstance triggers the <clinit> that reads PENDING
-            return (GeneratedFunctionCaller<D, E>) loader.load(callerName)
+            return (FromGlobCaller<C1, C2>) loader.load(callerName)
                     .getDeclaredConstructor()
                     .newInstance();
         } catch (Throwable e) {
@@ -155,8 +155,8 @@ public class AsmCallerGenerator {
     }
 
     /** Called from the generated caller's {@code <clinit>}, which runs while generate is still on the stack. */
-    public static FieldValueFunction[] getFunctions(String callerName) {
-        FieldValueFunction[] functions = PENDING.get(callerName);
+    public static FromGlobFunction[] getFunctions(String callerName) {
+        FromGlobFunction[] functions = PENDING.get(callerName);
         if (functions == null) {
             throw new IllegalStateException("Nothing registered for generated caller " + callerName
                                             + " : the generated class was initialized outside of create.");
@@ -178,7 +178,7 @@ public class AsmCallerGenerator {
      */
     static String getCallerName(String globInternalName, Access access, GlobType type, String name) {
         String simple = globInternalName.substring(globInternalName.lastIndexOf('/') + 1);
-        return CALLER_PACKAGE + GeneratedName.unique("Caller",
+        return GEN_PACKAGE + GeneratedName.unique("Caller",
                 new String[]{name, GeneratedName.simpleName(type.getName())},
                 name, type.getName(), simple, access.name(), layout(type));
     }
@@ -360,7 +360,7 @@ public class AsmCallerGenerator {
      * <p>
      * isNull is the value being null, which is exactly what core answers : {@code Glob.isNull(field)} is
      * {@code doCheckedGet(field) == null}, i.e. the same array slot. So the three arguments agree with
-     * {@link DefaultFunctionCaller} field by field, including the unset case (not set, null, no value).
+     * {@link LoopFromGlobCaller} field by field, including the unset case (not set, null, no value).
      */
     private static void emitDefaultGlobFieldCall(MethodVisitor methodVisitor, String callerName,
                                                  String globInternalName, Field field) {

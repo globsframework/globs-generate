@@ -1,13 +1,13 @@
 package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
-import org.globsframework.core.model.generate.read.GenerateCaller;
-import org.globsframework.core.model.generate.read.GenerateCallerService;
+import org.globsframework.core.model.caller.FromGlobCallerFactory;
+import org.globsframework.core.model.caller.FromGlobCallerService;
 
 /**
- * What {@code -Dglobs.caller=org.globsframework.model.generator.AsmCallerGeneratorService} installs : from
- * then on {@code GenerateCaller.callerFor} answers a generated caller for the types core builds itself,
- * instead of the looped {@code DefaultFunctionCaller}.
+ * What {@code -Dglobs.caller.fromGlob=org.globsframework.model.generator.AsmCallerGeneratorService} installs : from
+ * then on {@code FromGlobCallerFactory.callerFor} answers a generated caller for the types core builds itself,
+ * instead of the looped {@code LoopFromGlobCaller}.
  * <p>
  * It is only about the <em>traversal</em>. Nothing is generated for the type — no Glob class, no accessors —
  * so this is the setting for an application that measured {@code -Dglobs.builder=...} to be a loss on its own
@@ -18,9 +18,9 @@ import org.globsframework.core.model.generate.read.GenerateCallerService;
  * <p>
  * Answers null — "not mine", not an error — for a type whose factory does not build an AbstractDefaultGlob.
  */
-public class AsmCallerGeneratorService implements GenerateCallerService {
+public class AsmCallerGeneratorService implements FromGlobCallerService {
 
-    public GenerateCaller getGenerateCaller(GlobType type) {
+    public FromGlobCallerFactory factoryFor(GlobType type) {
         return AsmCallerGenerator.forDefaultGlob(type);
     }
 }

@@ -6,13 +6,13 @@ import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.IntegerField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.generate.write.CallAtWrite;
-import org.globsframework.core.model.generate.write.DefaultFunctionCallerWrite;
-import org.globsframework.core.model.generate.write.GenerateCallerWriteService;
-import org.globsframework.core.model.generate.write.GeneratedCallerWrite;
-import org.globsframework.core.model.generate.write.GeneratedCallerWriteAll;
-import org.globsframework.core.model.generate.write.GeneratedFunctionCallerWrite;
-import org.globsframework.core.model.generate.write.MutableFunctionWrite;
+import org.globsframework.core.model.caller.KeySource;
+import org.globsframework.core.model.caller.LoopToGlobCallerFactory;
+import org.globsframework.core.model.caller.ToGlobCallerService;
+import org.globsframework.core.model.caller.ToGlobCaller;
+import org.globsframework.core.model.caller.ToGlobCallerAll;
+import org.globsframework.core.model.caller.ToGlobCallerFactory;
+import org.globsframework.core.model.caller.ToGlobFunction;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.globsframework.model.generator.AsmCallerWriteGeneratorService;
 import org.junit.jupiter.api.AfterEach;
@@ -28,18 +28,18 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 /**
- * The write callers : the switch a {@link CallAtWrite} drives, and the unrolled one.
+ * The to-Glob callers : the switch a {@link KeySource} drives, and the unrolled one.
  * <p>
- * Nothing here sets {@code globs.builder} : the write side never reads the layout of a Glob, so it works over
+ * Nothing here sets {@code globs.builder} : the to-Glob side never reads the layout of a Glob, so it works over
  * whatever the type's factory builds — core's DefaultGlob here — and that is part of the contract.
  */
-public class GeneratedCallerWriteTest {
+public class GeneratedToGlobCallerTest {
 
     private final GlobType type;
     private final StringField name;
     private final IntegerField count;
 
-    public GeneratedCallerWriteTest() {
+    public GeneratedToGlobCallerTest() {
         GlobTypeBuilder builder = GlobTypeBuilderFactory.create("WriteTarget");
         name = builder.declareStringField("name");
         count = builder.declareIntegerField("count");
@@ -49,44 +49,44 @@ public class GeneratedCallerWriteTest {
     /** the service is cached, so a test that sets the property has to put it back for the others */
     @AfterEach
     public void tearDown() {
-        System.clearProperty("globs.callerWrite");
-        GenerateCallerWriteService.Builder.reset();
+        System.clearProperty("globs.caller.toGlob");
+        ToGlobCallerService.Builder.reset();
     }
 
     /** ctx1 is the trace, so what it collects is the proof the three contexts were forwarded. */
-    private MutableFunctionWrite<List<String>, String, String> record(String label) {
+    private ToGlobFunction<List<String>, String, String> record(String label) {
         return (glob, trace, ctx2, ctx3) -> trace.add(label + "/" + ctx2 + "/" + ctx3);
     }
 
     /** Answers the script, then {@code endLoop} for ever — a parser that ran out of input. */
-    private CallAtWrite script(int endLoop, int... calls) {
-        return new CallAtWrite() {
+    private KeySource script(int endLoop, int... calls) {
+        return new KeySource() {
             int next = 0;
 
-            public int getNextToCall() {
+            public int nextKey() {
                 return next < calls.length ? calls[next++] : endLoop;
             }
         };
     }
 
-    private SortedMap<Integer, MutableFunctionWrite<List<String>, String, String>> functions(int... keys) {
-        SortedMap<Integer, MutableFunctionWrite<List<String>, String, String>> functions = new TreeMap<>();
+    private SortedMap<Integer, ToGlobFunction<List<String>, String, String>> functions(int... keys) {
+        SortedMap<Integer, ToGlobFunction<List<String>, String, String>> functions = new TreeMap<>();
         for (int key : keys) {
             functions.put(key, record("fn" + key));
         }
         return functions;
     }
 
-    private List<String> call(GeneratedCallerWrite<List<String>, String, String> caller, CallAtWrite callAt) {
+    private List<String> call(ToGlobCaller<List<String>, String, String> caller, KeySource keySource) {
         List<String> trace = new ArrayList<>();
-        caller.call(callAt, type.instantiate(), trace, "c2", "c3");
+        caller.call(keySource, type.instantiate(), trace, "c2", "c3");
         return trace;
     }
 
     /** Dense keys : a tableswitch, holes included. */
     @Test
     public void callsWhatTheCallAtAsksForInOrder() {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(0, 1, 2, 3), record("fallback"), -1);
 
         Assertions.assertEquals(List.of("fn2/c2/c3", "fn0/c2/c3", "fn2/c2/c3", "fn3/c2/c3", "fn1/c2/c3"),
@@ -96,7 +96,7 @@ public class GeneratedCallerWriteTest {
     /** Sparse and negative keys : a lookupswitch, whose keys the switch wants ascending. */
     @Test
     public void sparseAndNegativeKeys() {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(-40000, -3, 7, 100000), record("fallback"), -1);
 
         Assertions.assertEquals(List.of("fn100000/c2/c3", "fn-3/c2/c3", "fn-40000/c2/c3", "fn7/c2/c3"),
@@ -106,12 +106,12 @@ public class GeneratedCallerWriteTest {
     /** The keys are sorted by the generator, not taken as the map iterates them. */
     @Test
     public void aMapWithItsOwnComparatorIsStillGeneratedRight() {
-        SortedMap<Integer, MutableFunctionWrite<List<String>, String, String>> functions =
+        SortedMap<Integer, ToGlobFunction<List<String>, String, String>> functions =
                 new TreeMap<>(Comparator.reverseOrder());
         for (int key : new int[]{1, 5, 9, 12}) {
             functions.put(key, record("fn" + key));
         }
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions, record("fallback"), -1);
 
         Assertions.assertEquals(List.of("fn9/c2/c3", "fn1/c2/c3", "fn12/c2/c3", "fn5/c2/c3"),
@@ -120,7 +120,7 @@ public class GeneratedCallerWriteTest {
 
     @Test
     public void anUnknownKeyGoesToTheFallback() {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(1, 2), record("fallback"), -1);
 
         Assertions.assertEquals(List.of("fallback/c2/c3", "fn1/c2/c3", "fallback/c2/c3"),
@@ -129,7 +129,7 @@ public class GeneratedCallerWriteTest {
 
     @Test
     public void anUnknownKeyWithoutAFallbackThrowsAndSaysWhich() {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(1, 2), null, -1);
 
         Assertions.assertEquals(List.of("fn2/c2/c3"), call(caller, script(-1, 2)));
@@ -141,7 +141,7 @@ public class GeneratedCallerWriteTest {
     /** endLoop is tested before the switch : it ends the pass even when it is also a key. */
     @Test
     public void anEndLoopOfItsOwnShadowsTheKeyItEquals() {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(1, 2, 3), record("fallback"), 3);
 
         Assertions.assertEquals(List.of("fn1/c2/c3", "fn2/c2/c3"), call(caller, script(3, 1, 2, 3, 1)));
@@ -149,7 +149,7 @@ public class GeneratedCallerWriteTest {
 
     @Test
     public void noFunctionAtAllIsALoopThatOnlyWaitsForTheEnd() {
-        GeneratedCallerWrite<List<String>, String, String> caller = AsmCallerWriteGenerator.INSTANCE
+        ToGlobCaller<List<String>, String, String> caller = AsmCallerWriteGenerator.INSTANCE
                 .create("test", Collections.emptySortedMap(), record("fallback"), 0);
 
         Assertions.assertEquals(List.of("fallback/c2/c3", "fallback/c2/c3"), call(caller, script(0, 4, 9)));
@@ -158,10 +158,10 @@ public class GeneratedCallerWriteTest {
     /** The functions get the Glob and write into it — the point of the whole thing. */
     @Test
     public void theFunctionsWriteIntoTheGlobTheyAreHanded() {
-        SortedMap<Integer, MutableFunctionWrite<List<String>, String, String>> functions = new TreeMap<>();
+        SortedMap<Integer, ToGlobFunction<List<String>, String, String>> functions = new TreeMap<>();
         functions.put(0, (glob, trace, ctx2, ctx3) -> glob.set(name, "n" + trace.size()));
         functions.put(1, (glob, trace, ctx2, ctx3) -> glob.set(count, 12));
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions, null, -1);
 
         MutableGlob glob = type.instantiate();
@@ -174,8 +174,8 @@ public class GeneratedCallerWriteTest {
     @SuppressWarnings("unchecked")
     @Test
     public void writeAllCallsEveryFunctionOnceInOrder() {
-        GeneratedCallerWriteAll<List<String>, String, String> caller = AsmCallerWriteGenerator.INSTANCE
-                .create("test", new MutableFunctionWrite[]{record("a"), record("b"), record("c")});
+        ToGlobCallerAll<List<String>, String, String> caller = AsmCallerWriteGenerator.INSTANCE
+                .create("test", new ToGlobFunction[]{record("a"), record("b"), record("c")});
 
         List<String> trace = new ArrayList<>();
         caller.call(type.instantiate(), trace, "c2", "c3");
@@ -186,8 +186,8 @@ public class GeneratedCallerWriteTest {
     @SuppressWarnings("unchecked")
     @Test
     public void writeAllOfNothingIsAnEmptyCall() {
-        GeneratedCallerWriteAll<List<String>, String, String> caller =
-                AsmCallerWriteGenerator.INSTANCE.create("test", new MutableFunctionWrite[0]);
+        ToGlobCallerAll<List<String>, String, String> caller =
+                AsmCallerWriteGenerator.INSTANCE.create("test", new ToGlobFunction[0]);
 
         List<String> trace = new ArrayList<>();
         caller.call(type.instantiate(), trace, "c2", "c3");
@@ -201,9 +201,9 @@ public class GeneratedCallerWriteTest {
      */
     @Test
     public void aClassPerCreateHoldingItsOwnFunctionsInStaticFinals() throws Exception {
-        GeneratedCallerWrite<List<String>, String, String> first =
+        ToGlobCaller<List<String>, String, String> first =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(1, 2), record("fallback"), -1);
-        GeneratedCallerWrite<List<String>, String, String> second =
+        ToGlobCaller<List<String>, String, String> second =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(1, 2), record("fallback"), -1);
 
         Assertions.assertNotSame(first.getClass(), second.getClass());
@@ -219,32 +219,32 @@ public class GeneratedCallerWriteTest {
 
     @Test
     public void aMissingFunctionIsRefusedAtGenerationTime() {
-        SortedMap<Integer, MutableFunctionWrite<List<String>, String, String>> functions = functions(1, 2);
+        SortedMap<Integer, ToGlobFunction<List<String>, String, String>> functions = functions(1, 2);
         functions.put(3, null);
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> AsmCallerWriteGenerator.INSTANCE.create("test", functions, null, -1));
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> AsmCallerWriteGenerator.INSTANCE.create("test", new MutableFunctionWrite[]{record("a"), null}));
+                () -> AsmCallerWriteGenerator.INSTANCE.create("test", new ToGlobFunction[]{record("a"), null}));
     }
 
     /**
-     * The extension point : {@code -Dglobs.callerWrite} is what a parser goes through, and it is what makes
+     * The extension point : {@code -Dglobs.caller.toGlob} is what a parser goes through, and it is what makes
      * this module reachable without being named. Unset, core keeps answering its loop.
      */
     @Test
     public void theServiceIsWhatGetAnswersOnceInstalled() {
-        Assertions.assertSame(DefaultFunctionCallerWrite.INSTANCE, GeneratedFunctionCallerWrite.get());
+        Assertions.assertSame(LoopToGlobCallerFactory.INSTANCE, ToGlobCallerFactory.get());
 
-        System.setProperty("globs.callerWrite", AsmCallerWriteGeneratorService.class.getName());
-        GenerateCallerWriteService.Builder.reset();
+        System.setProperty("globs.caller.toGlob", AsmCallerWriteGeneratorService.class.getName());
+        ToGlobCallerService.Builder.reset();
         try {
-            Assertions.assertSame(AsmCallerWriteGenerator.INSTANCE, GeneratedFunctionCallerWrite.get());
-            Assertions.assertSame(AsmCallerWriteGenerator.INSTANCE, GeneratedFunctionCallerWrite.getGenerated());
+            Assertions.assertSame(AsmCallerWriteGenerator.INSTANCE, ToGlobCallerFactory.get());
+            Assertions.assertSame(AsmCallerWriteGenerator.INSTANCE, ToGlobCallerFactory.generated());
         } finally {
-            System.clearProperty("globs.callerWrite");
-            GenerateCallerWriteService.Builder.reset();
+            System.clearProperty("globs.caller.toGlob");
+            ToGlobCallerService.Builder.reset();
         }
-        Assertions.assertNull(GeneratedFunctionCallerWrite.getGenerated());
+        Assertions.assertNull(ToGlobCallerFactory.generated());
     }
 
     /**
@@ -256,14 +256,14 @@ public class GeneratedCallerWriteTest {
         int[] script = {2, 0, 17, 2, -3, 100000, 0, -1000};
         for (int[] keys : new int[][]{{-3, 0, 1, 2}, {-3, 0, 2, 100000}}) {
             Assertions.assertEquals(
-                    call(DefaultFunctionCallerWrite.INSTANCE.create("test", functions(keys), record("fallback"), -1),
+                    call(LoopToGlobCallerFactory.INSTANCE.create("test", functions(keys), record("fallback"), -1),
                             script(-1, script)),
                     call(AsmCallerWriteGenerator.INSTANCE.create("test", functions(keys), record("fallback"), -1),
                             script(-1, script)));
 
-            GeneratedCallerWrite<List<String>, String, String> looped =
-                    DefaultFunctionCallerWrite.INSTANCE.create("test", functions(keys), null, -1);
-            GeneratedCallerWrite<List<String>, String, String> generated =
+            ToGlobCaller<List<String>, String, String> looped =
+                    LoopToGlobCallerFactory.INSTANCE.create("test", functions(keys), null, -1);
+            ToGlobCaller<List<String>, String, String> generated =
                     AsmCallerWriteGenerator.INSTANCE.create("test", functions(keys), null, -1);
             Assertions.assertEquals(
                     Assertions.assertThrows(IllegalStateException.class,
@@ -297,7 +297,7 @@ public class GeneratedCallerWriteTest {
     }
 
     private void checkEachKey(int[] keys) {
-        GeneratedCallerWrite<List<String>, String, String> caller =
+        ToGlobCaller<List<String>, String, String> caller =
                 AsmCallerWriteGenerator.INSTANCE.create("test", functions(keys), record("fallback"), Integer.MIN_VALUE);
 
         List<String> expected = new ArrayList<>();

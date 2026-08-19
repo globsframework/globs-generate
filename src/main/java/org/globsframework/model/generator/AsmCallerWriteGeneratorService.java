@@ -1,20 +1,20 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.core.model.generate.write.GenerateCallerWriteService;
-import org.globsframework.core.model.generate.write.GeneratedFunctionCallerWrite;
+import org.globsframework.core.model.caller.ToGlobCallerService;
+import org.globsframework.core.model.caller.ToGlobCallerFactory;
 
 /**
- * What {@code -Dglobs.callerWrite=org.globsframework.model.generator.AsmCallerWriteGeneratorService} installs :
- * from then on {@code GeneratedFunctionCallerWrite.get()} answers a generating factory instead of the looped
- * {@code DefaultFunctionCallerWrite}, and every parser written against core gets its switch generated.
+ * What {@code -Dglobs.caller.toGlob=org.globsframework.model.generator.AsmCallerWriteGeneratorService} installs :
+ * from then on {@code ToGlobCallerFactory.get()} answers a generating factory instead of the looped
+ * {@code LoopToGlobCallerFactory}, and every parser written against core gets its switch generated.
  * <p>
- * Independent of {@code globs.builder} and of {@code globs.caller} : the write side never reads the layout of
+ * Independent of {@code globs.builder} and of {@code globs.caller.fromGlob} : the to-Glob side never reads the layout of
  * a Glob, so this works whoever built the Glob the functions write into. One instance serves everything —
  * there is no GlobType to be "not mine" about, hence no null answer here.
  */
-public class AsmCallerWriteGeneratorService implements GenerateCallerWriteService {
+public class AsmCallerWriteGeneratorService implements ToGlobCallerService {
 
-    public GeneratedFunctionCallerWrite getGenerateCallerWrite() {
+    public ToGlobCallerFactory factory() {
         return AsmCallerWriteGenerator.INSTANCE;
     }
 }

@@ -1,11 +1,11 @@
 package org.globsframework.model.generator;
 
-import org.globsframework.core.model.generate.CallerName;
-import org.globsframework.core.model.generate.write.CallAtWrite;
-import org.globsframework.core.model.generate.write.GeneratedCallerWrite;
-import org.globsframework.core.model.generate.write.GeneratedCallerWriteAll;
-import org.globsframework.core.model.generate.write.GeneratedFunctionCallerWrite;
-import org.globsframework.core.model.generate.write.MutableFunctionWrite;
+import org.globsframework.core.model.caller.CallerName;
+import org.globsframework.core.model.caller.KeySource;
+import org.globsframework.core.model.caller.ToGlobCaller;
+import org.globsframework.core.model.caller.ToGlobCallerAll;
+import org.globsframework.core.model.caller.ToGlobCallerFactory;
+import org.globsframework.core.model.caller.ToGlobFunction;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
@@ -19,33 +19,33 @@ import java.util.function.Supplier;
 import static org.objectweb.asm.Opcodes.*;
 
 /**
- * The write side of {@link AsmCallerGenerator} : the only implementation of
- * {@link GeneratedFunctionCallerWrite}, emitting one class per {@code create} call, holding one
- * {@code public static final MutableFunctionWrite} per entry and a {@code call} that dispatches to them from
+ * The to-Glob side of {@link AsmCallerGenerator} : the only implementation of
+ * {@link ToGlobCallerFactory}, emitting one class per {@code create} call, holding one
+ * {@code public static final ToGlobFunction} per entry and a {@code call} that dispatches to them from
  * a call site of its own.
  * <p>
- * Same reason as on the read side, and the same measurements behind it : a {@code static final} read is a
+ * Same reason as on the from-Glob side, and the same measurements behind it : a {@code static final} read is a
  * constant to the JIT, so each {@code INVOKEINTERFACE call} sees a single receiver type and inlines, where the
  * one call site of a hand-written {@code functions[next].call(...)} sees every function of every entry of
  * every type and stays megamorphic. That is also why a class is emitted per {@code create} rather than per
  * GlobType : two callers over the same type hold different functions, and sharing the class would put them
  * back on the same call sites.
  * <p>
- * What is *not* the same as the read side : nothing here reads the layout of a Glob. The functions do their
+ * What is *not* the same as the from-Glob side : nothing here reads the layout of a Glob. The functions do their
  * own writing through {@link org.globsframework.core.model.MutableGlob}, so there is no GlobType to look at,
  * no CHECKCAST to a generated Glob class, and no ClassLoader to borrow from a factory — a generated caller
  * only ever names core interfaces. It works whatever built the Glob it is handed, generated or not, and this
  * class is therefore usable on its own, without {@code globs.builder}.
  * <p>
- * A parser should not name it, though : {@code GeneratedFunctionCallerWrite.get()} answers this through
- * {@link AsmCallerWriteGeneratorService} when {@code -Dglobs.callerWrite} installs it, and core's looped
- * {@code DefaultFunctionCallerWrite} otherwise — same behaviour, so one code path.
+ * A parser should not name it, though : {@code ToGlobCallerFactory.get()} answers this through
+ * {@link AsmCallerWriteGeneratorService} when {@code -Dglobs.caller.toGlob} installs it, and core's looped
+ * {@code LoopToGlobCallerFactory} otherwise — same behaviour, so one code path.
  *
  * <pre>
- * SortedMap&lt;Integer, MutableFunctionWrite&lt;In, Void, Void&gt;&gt; functions = new TreeMap&lt;&gt;();
+ * SortedMap&lt;Integer, ToGlobFunction&lt;In, Void, Void&gt;&gt; functions = new TreeMap&lt;&gt;();
  * // ... one per attribute of the format, keyed by whatever the parser answers for it
- * GeneratedCallerWrite&lt;In, Void, Void&gt; caller =
- *         GeneratedFunctionCallerWrite.get().create("myformat.read", functions, skipUnknown, -1);
+ * ToGlobCaller&lt;In, Void, Void&gt; caller =
+ *         ToGlobCallerFactory.get().create("myformat.read", functions, skipUnknown, -1);
  * caller.call(parser, type.instantiate(), in, null, null);
  * </pre>
  *
@@ -53,45 +53,45 @@ import static org.objectweb.asm.Opcodes.*;
  * worth unrolling : a case is a dozen bytes plus its switch entry, which leaves room for a few thousand, well
  * past the point where the JIT stops inlining any of it.
  */
-public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
+public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     /** Stateless : generation keys everything by the name of the class it emits, so one instance serves the whole process. */
     public static final AsmCallerWriteGenerator INSTANCE = new AsmCallerWriteGenerator();
 
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerWriteGenerator";
-    private static final String WRITE = "org/globsframework/core/model/generate/write/";
-    private static final String FUNCTION = WRITE + "MutableFunctionWrite";
+    private static final String CALLER_PKG = "org/globsframework/core/model/caller/";
+    private static final String FUNCTION = CALLER_PKG + "ToGlobFunction";
     private static final String FUNCTION_DESC = "L" + FUNCTION + ";";
     private static final String FUNCTIONS_DESC = "[" + FUNCTION_DESC;
-    private static final String CALL_AT = WRITE + "CallAtWrite";
-    private static final String CALLER = WRITE + "GeneratedCallerWrite";
-    private static final String CALLER_ALL = WRITE + "GeneratedCallerWriteAll";
-    private static final String CALLER_FACTORY = WRITE + "GeneratedFunctionCallerWrite";
+    private static final String KEY_SOURCE = CALLER_PKG + "KeySource";
+    private static final String CALLER = CALLER_PKG + "ToGlobCaller";
+    private static final String CALLER_ALL = CALLER_PKG + "ToGlobCallerAll";
+    private static final String CALLER_FACTORY = CALLER_PKG + "ToGlobCallerFactory";
     private static final String OBJECT = "Ljava/lang/Object;";
     private static final String MUTABLE_GLOB = "Lorg/globsframework/core/model/MutableGlob;";
-    /** the erasure of MutableFunctionWrite.call, and of GeneratedCallerWriteAll.call */
+    /** the erasure of ToGlobFunction.call, and of ToGlobCallerAll.call */
     private static final String CALL_DESC = "(" + MUTABLE_GLOB + OBJECT + OBJECT + OBJECT + ")V";
-    private static final String CALLER_PACKAGE = "org/globsframework/gen/write/";
+    private static final String GEN_PACKAGE = "org/globsframework/gen/toglob/";
 
-    // GeneratedCallerWrite.call : 0 this, 1 callAt, 2 data, 3-5 the contexts, 6 what getNextToCall answered
+    // ToGlobCaller.call : 0 this, 1 keySource, 2 data, 3-5 the contexts, 6 what nextKey answered
     private static final int NEXT_SLOT = 6;
 
     // What the generated caller's <clinit> reads, keyed by the name of the class that reads it -- a name
     // GeneratedName has already made unique, so two creations never race over one entry. Same protocol as
     // the PENDING map of the other generators : the entry lives only for the duration of create, so nothing
     // here keeps a function -- nor the ClassLoader of the generated class -- alive.
-    private static final Map<String, MutableFunctionWrite[]> PENDING = new ConcurrentHashMap<>();
+    private static final Map<String, ToGlobFunction[]> PENDING = new ConcurrentHashMap<>();
 
     @SuppressWarnings("unchecked")
-    public <Ctx1, Ctx2, Ctx3> GeneratedCallerWrite<Ctx1, Ctx2, Ctx3> create(
-            String name, SortedMap<Integer, MutableFunctionWrite<Ctx1, Ctx2, Ctx3>> functions,
-            MutableFunctionWrite fallback, int endLoop) {
+    public <C1, C2, C3> ToGlobCaller<C1, C2, C3> create(
+            String name, SortedMap<Integer, ToGlobFunction<C1, C2, C3>> functions,
+            ToGlobFunction fallback, int endLoop) {
         CallerName.check(name);
         // sorted here rather than trusted : a lookupswitch wants its keys ascending, and the map may have
         // been built with a comparator of its own
         int[] keys = functions.keySet().stream().mapToInt(Integer::intValue).sorted().toArray();
-        MutableFunctionWrite[] all = new MutableFunctionWrite[keys.length + (fallback != null ? 1 : 0)];
+        ToGlobFunction[] all = new ToGlobFunction[keys.length + (fallback != null ? 1 : 0)];
         for (int i = 0; i < keys.length; i++) {
-            all[i] = GeneratedFunctionCallerWrite.checked(functions.get(keys[i]), "key " + keys[i]);
+            all[i] = ToGlobCallerFactory.checked(functions.get(keys[i]), "key " + keys[i]);
         }
         if (fallback != null) {
             all[keys.length] = fallback;
@@ -99,23 +99,23 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
         // the shape is in the digest, not only the name : nothing here is a GlobType, so a parser giving one
         // name per type is what tells two callers apart, and two shapes under one name still have to be two
         // classes -- with names that say so rather than an order of creation
-        String callerName = CALLER_PACKAGE + GeneratedName.unique("Caller", new String[]{name},
+        String callerName = GEN_PACKAGE + GeneratedName.unique("Caller", new String[]{name},
                 name, Arrays.toString(keys), Boolean.toString(fallback != null), Integer.toString(endLoop));
-        return (GeneratedCallerWrite<Ctx1, Ctx2, Ctx3>)
+        return (ToGlobCaller<C1, C2, C3>)
                 generate(callerName, all, () -> generateCaller(callerName, keys, fallback != null, endLoop));
     }
 
     @SuppressWarnings("unchecked")
-    public <Ctx1, Ctx2, Ctx3> GeneratedCallerWriteAll<Ctx1, Ctx2, Ctx3> create(
-            String name, MutableFunctionWrite<Ctx1, Ctx2, Ctx3>[] functions) {
+    public <C1, C2, C3> ToGlobCallerAll<C1, C2, C3> create(
+            String name, ToGlobFunction<C1, C2, C3>[] functions) {
         CallerName.check(name);
-        MutableFunctionWrite[] all = new MutableFunctionWrite[functions.length];
+        ToGlobFunction[] all = new ToGlobFunction[functions.length];
         for (int i = 0; i < functions.length; i++) {
-            all[i] = GeneratedFunctionCallerWrite.checked(functions[i], "index " + i);
+            all[i] = ToGlobCallerFactory.checked(functions[i], "index " + i);
         }
-        String callerName = CALLER_PACKAGE + GeneratedName.unique("CallerAll", new String[]{name},
+        String callerName = GEN_PACKAGE + GeneratedName.unique("CallerAll", new String[]{name},
                 name, Integer.toString(all.length));
-        return (GeneratedCallerWriteAll<Ctx1, Ctx2, Ctx3>)
+        return (ToGlobCallerAll<C1, C2, C3>)
                 generate(callerName, all, () -> generateCallerAll(callerName, all.length));
     }
 
@@ -124,7 +124,7 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
      * needs nothing of what is generated around it — and instantiates it, which is what runs the
      * {@code <clinit>} reading PENDING.
      */
-    private static Object generate(String callerName, MutableFunctionWrite[] functions,
+    private static Object generate(String callerName, ToGlobFunction[] functions,
                                    Supplier<byte[]> bytes) {
         GeneratedClassLoader loader = GeneratedClassLoader.get();
         loader.emit(callerName, bytes);
@@ -139,8 +139,8 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
     }
 
     /** Called from the generated caller's {@code <clinit>}, which runs while generate is still on the stack. */
-    public static MutableFunctionWrite[] getFunctions(String callerName) {
-        MutableFunctionWrite[] functions = PENDING.get(callerName);
+    public static ToGlobFunction[] getFunctions(String callerName) {
+        ToGlobFunction[] functions = PENDING.get(callerName);
         if (functions == null) {
             throw new IllegalStateException("Nothing registered for generated write caller " + callerName
                                             + " : the generated class was initialized outside of create.");
@@ -149,7 +149,7 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
     }
 
     /**
-     * {@code while ((next = callAt.getNextToCall()) != endLoop) switch (next) { case k -> fn_i.call(...); }}
+     * {@code while ((next = keySource.nextKey()) != endLoop) switch (next) { case k -> fn_i.call(...); }}
      * <p>
      * The endLoop test comes first, so that value never reaches the switch : it may be a key of the map, and
      * ending wins. The switch is a tableswitch when the keys are dense enough to pay for the holes, a
@@ -162,7 +162,7 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
         generateClinit(classWriter, callerName, keys.length, hasFallback);
 
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "call",
-                "(L" + CALL_AT + ";" + MUTABLE_GLOB + OBJECT + OBJECT + OBJECT + ")V", null, null);
+                "(L" + KEY_SOURCE + ";" + MUTABLE_GLOB + OBJECT + OBJECT + OBJECT + ")V", null, null);
         methodVisitor.visitCode();
 
         Label top = new Label();
@@ -173,7 +173,7 @@ public class AsmCallerWriteGenerator implements GeneratedFunctionCallerWrite {
 
         methodVisitor.visitLabel(top);
         methodVisitor.visitVarInsn(ALOAD, 1);
-        methodVisitor.visitMethodInsn(INVOKEINTERFACE, CALL_AT, "getNextToCall", "()I", true);
+        methodVisitor.visitMethodInsn(INVOKEINTERFACE, KEY_SOURCE, "nextKey", "()I", true);
         methodVisitor.visitVarInsn(ISTORE, NEXT_SLOT);
         methodVisitor.visitVarInsn(ILOAD, NEXT_SLOT);
         pushInt(methodVisitor, endLoop);
