@@ -150,7 +150,7 @@ public class GeneratedFactoryActiveTest {
             GlobType type = b.build();
 
             MutableGlob glob = type.instantiate();
-            Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+            Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.gen."),
                     "not a generated glob : " + glob.getClass().getName());
 
             Glob child = targetType.instantiate().set(targetType.getField("name").asStringField(), "child");
@@ -168,11 +168,11 @@ public class GeneratedFactoryActiveTest {
             for (int i = 0; i < fields.length; i++) {
                 Field field = fields[i];
                 Assertions.assertTrue(type.getGlobFactory().getGetValueAccessor(field).getClass().getName()
-                                .startsWith("org.globsframework.model.generated."),
+                                .startsWith("org.globsframework.gen."),
                         field.getName() + " get accessor is not generated : "
                         + type.getGlobFactory().getGetValueAccessor(field).getClass().getName());
                 Assertions.assertTrue(type.getGlobFactory().getSetValueAccessor(field).getClass().getName()
-                                .startsWith("org.globsframework.model.generated."),
+                                .startsWith("org.globsframework.gen."),
                         field.getName() + " set accessor is not generated : "
                         + type.getGlobFactory().getSetValueAccessor(field).getClass().getName());
                 type.getGlobFactory().getSetValueAccessor(field).setValue(glob, values[i]);
@@ -206,7 +206,7 @@ public class GeneratedFactoryActiveTest {
             for (int fieldCount : new int[]{9, 45}) {
                 String tag = service.contains("object") ? "Obj" : "Prim";
                 MutableGlob glob = instantiate(service, "Ctx" + tag + fieldCount, fieldCount);
-                Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+                Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.gen."),
                         "not generated : " + glob.getClass().getName());
 
                 if (service.contains("object")) {
@@ -436,12 +436,12 @@ public class GeneratedFactoryActiveTest {
                 String tag = service.contains("object") ? "Obj" : "Prim";
                 MutableGlob glob = instantiate(service, "Mask" + tag + fieldCount, fieldCount);
                 GlobType type = glob.getType();
-                Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+                Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.gen."),
                         "not generated : " + glob.getClass().getName());
 
                 for (Field field : type.getFields()) {
                     Class<?> accessor = type.getGlobFactory().getGetValueAccessor(field).getClass();
-                    Assertions.assertTrue(accessor.getName().startsWith("org.globsframework.model.generated."),
+                    Assertions.assertTrue(accessor.getName().startsWith("org.globsframework.gen."),
                             field.getName() + " get accessor is not generated");
                     // declared, not inherited : otherwise the mask versions are silently not the ones running
                     Assertions.assertDoesNotThrow(() -> accessor.getDeclaredMethod("isSet", Glob.class),
@@ -529,7 +529,7 @@ public class GeneratedFactoryActiveTest {
                     Assertions.assertEquals(3 + i, type.getFieldCount());
 
                     MutableGlob glob = type.instantiate();
-                    Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+                    Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.gen."),
                             "not generated : " + glob.getClass().getName());
                     // the factory's own view of the type, straight out of <clinit>
                     Assertions.assertSame(type, glob.getType());

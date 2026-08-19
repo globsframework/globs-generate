@@ -2,6 +2,7 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
+import org.globsframework.core.model.generate.CallerName;
 import org.globsframework.core.model.generate.read.FieldValueFunction;
 import org.globsframework.core.model.generate.read.GenerateCaller;
 import org.globsframework.core.model.generate.read.DefaultFunctionCaller;
@@ -13,7 +14,6 @@ import org.objectweb.asm.MethodVisitor;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.objectweb.asm.Opcodes.*;
 
@@ -26,12 +26,13 @@ import static org.objectweb.asm.Opcodes.*;
  * single receiver type and inlines, where the loop of a hand-written serializer sees every function of every
  * field of every type and stays megamorphic. That is also why a class is emitted per
  * {@link GenerateCaller#create} rather than per type : two callers over the same type hold different
- * functions, and sharing the class would put them back on the same call sites.
+ * functions, and sharing the class would put them back on the same call sites. The class is named after the
+ * purpose the caller gives ({@link CallerName}) and a digest of what it is generated over, so that the same
+ * codec over the same type gets the same class name in every run — see {@link GeneratedName}.
  * <p>
  * Like {@link AsmAccessorGenerator} this reads the value fields and the masks of the generated Glob straight
- * out of another package (they are {@code public} for exactly that reason), and for the same reason it is
- * written with COMPUTE_FRAMES : the null handling is branchy and hand-computed frames would buy nothing but
- * VerifyErrors.
+ * out of another package (they are {@code public} for exactly that reason), and it is written with
+ * COMPUTE_FRAMES : the null handling is branchy and hand-computed frames would buy nothing but VerifyErrors.
  * <p>
  * Boxing : the interface is generic, so a primitive-flavour value has to be boxed to be passed. Since the
  * call site is monomorphic and small, the box normally dies in escape analysis once the function is inlined —
@@ -45,17 +46,18 @@ public class AsmCallerGenerator {
     private static final String CALLER = "org/globsframework/core/model/generate/read/GeneratedFunctionCaller";
     private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
     private static final String OBJECT = "Ljava/lang/Object;";
+    private static final String CALLER_PACKAGE = "org/globsframework/gen/read/";
 
     // the Glob is cast once into slot 4; 5 and 6 are the per-field scratch (the null flag / the value)
     private static final int GLOB_SLOT = 4;
     private static final int FLAG_SLOT = 5;
     private static final int VALUE_SLOT = 6;
 
-    private static final AtomicInteger ID = new AtomicInteger();
-    // What the generated caller's <clinit> reads. Same protocol as the PENDING map of the two generators :
-    // the entry lives only for the duration of create, so nothing here keeps a function -- nor the
-    // ClassLoader of the generated class -- alive.
-    private static final Map<Integer, FieldValueFunction[]> PENDING = new ConcurrentHashMap<>();
+    // What the generated caller's <clinit> reads, keyed by the name of the class that reads it -- a name
+    // GeneratedName has already made unique, so two creations never race over one entry. Same protocol as
+    // the PENDING map of the two generators : the entry lives only for the duration of create, so nothing
+    // here keeps a function -- nor the ClassLoader of the generated class -- alive.
+    private static final Map<String, FieldValueFunction[]> PENDING = new ConcurrentHashMap<>();
 
     /** How the emitted {@code call} gets isSet / isNull / the value out of the Glob it was cast to. */
     private enum Access {
@@ -68,19 +70,19 @@ public class AsmCallerGenerator {
     }
 
     /**
-     * The GenerateCaller handed to the factory of a generated type. It closes over the ClassLoader holding
-     * the generated Glob class, which is the only thing that can resolve it — that is why the factory cannot
-     * build this on its own and gets it from the generator, like its AccessorProvider.
+     * The GenerateCaller handed to the factory of a generated type. It is built here rather than by the
+     * factory because only the generator knows what it is generating over — the Glob class and its flavour —
+     * exactly like the AccessorProvider next to it.
      *
      * @param globInternalName the generated Glob class, whose public fields and masks the caller reads
      * @param primitive        which flavour that Glob is : native fields plus an isNull mask, or boxed ones
      */
-    public static GenerateCaller generatorFor(ClassLoader globLoader, String globInternalName, GlobType type,
+    public static GenerateCaller generatorFor(GeneratedClassLoader globLoader, String globInternalName, GlobType type,
                                               boolean primitive) {
         Access access = primitive ? Access.PRIMITIVE : Access.OBJECT;
         return new GenerateCaller() {
-            public <D, E> GeneratedFunctionCaller<D, E> create(GetFieldValueFunction<D, E> getFieldValueFunction) {
-                return generate(globLoader, globInternalName, type, access, getFieldValueFunction);
+            public <D, E> GeneratedFunctionCaller<D, E> create(String name, GetFieldValueFunction<D, E> getFieldValueFunction) {
+                return generate(globLoader, globInternalName, type, access, name, getFieldValueFunction);
             }
         };
     }
@@ -108,20 +110,21 @@ public class AsmCallerGenerator {
             return null;
         }
         String globInternalName = globClass.getName().replace('.', '/');
-        // the concrete Glob is an ordinary core class : the caller only needs a child of this module's own
-        // loader, not the throwaway one a generated Glob lives in
-        ClassLoader loader = AsmCallerGenerator.class.getClassLoader();
+        // the concrete Glob is an ordinary core class, so this caller resolves it through the loader's
+        // parent -- but it is defined in the same loader as everything else this module generates
+        GeneratedClassLoader loader = GeneratedClassLoader.get();
         return new GenerateCaller() {
-            public <D, E> GeneratedFunctionCaller<D, E> create(GetFieldValueFunction<D, E> getFieldValueFunction) {
-                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, getFieldValueFunction);
+            public <D, E> GeneratedFunctionCaller<D, E> create(String name, GetFieldValueFunction<D, E> getFieldValueFunction) {
+                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, getFieldValueFunction);
             }
         };
     }
 
     @SuppressWarnings("unchecked")
-    private static <D, E> GeneratedFunctionCaller<D, E> generate(ClassLoader globLoader, String globInternalName,
-                                                                 GlobType type, Access access,
+    private static <D, E> GeneratedFunctionCaller<D, E> generate(GeneratedClassLoader loader, String globInternalName,
+                                                                 GlobType type, Access access, String name,
                                                                  GenerateCaller.GetFieldValueFunction<D, E> provider) {
+        CallerName.check(name);
         Field[] fields = type.getFields();
         FieldValueFunction[] functions = new FieldValueFunction[fields.length];
         for (Field field : fields) {
@@ -133,59 +136,69 @@ public class AsmCallerGenerator {
             functions[field.getIndex()] = function;
         }
 
-        int id = ID.incrementAndGet();
-        String callerName = getCallerName(globInternalName, access, id);
-        // a child of the loader holding the Glob class : it sees it through delegation, and it is thrown
-        // away with the caller it was built for
-        ClassLoader loader = new ClassLoader(globLoader) {
-            protected Class<?> findClass(String name) throws ClassNotFoundException {
-                if (name.replace('.', '/').equals(callerName)) {
-                    byte[] b = generateCaller(callerName, globInternalName, type, access, id);
-                    return super.defineClass(name, b, 0, b.length);
-                }
-                return super.findClass(name);
-            }
-        };
+        String callerName = getCallerName(globInternalName, access, type, name);
+        // the same loader as the Glob it reads : it sees that class without a child loader, which is what
+        // the caller used to need one for
+        loader.emit(callerName, () -> generateCaller(callerName, globInternalName, type, access));
 
-        PENDING.put(id, functions);
+        PENDING.put(callerName, functions);
         try {
             // newInstance triggers the <clinit> that reads PENDING
-            return (GeneratedFunctionCaller<D, E>) loader.loadClass(callerName.replace('/', '.'))
+            return (GeneratedFunctionCaller<D, E>) loader.load(callerName)
                     .getDeclaredConstructor()
                     .newInstance();
         } catch (Throwable e) {
             throw new RuntimeException("Can not generate the caller of " + type.getName() + " : " + e.getMessage(), e);
         } finally {
-            PENDING.remove(id);
+            PENDING.remove(callerName);
         }
     }
 
     /** Called from the generated caller's {@code <clinit>}, which runs while generate is still on the stack. */
-    public static FieldValueFunction[] getFunctions(int id) {
-        FieldValueFunction[] functions = PENDING.get(id);
+    public static FieldValueFunction[] getFunctions(String callerName) {
+        FieldValueFunction[] functions = PENDING.get(callerName);
         if (functions == null) {
-            throw new IllegalStateException("Nothing registered for generated caller " + id
+            throw new IllegalStateException("Nothing registered for generated caller " + callerName
                                             + " : the generated class was initialized outside of create.");
         }
         return functions;
     }
 
-    static String getCallerName(String globInternalName, Access access, int id) {
-        if (access == Access.DEFAULT_GLOB) {
-            // the Glob is a core class : keep the caller out of core's package rather than splitting it
-            return "org/globsframework/model/generated/defaultglob/GeneratedFunctionCaller_" + id;
-        }
+    /**
+     * The name of the emitted class : the purpose the caller gave and the type it walks, readable, plus a
+     * digest of everything the bytes depend on — the Glob class the CHECKCAST names, the flavour, and the
+     * layout the unrolled call is written against.
+     * <p>
+     * One package for every read caller, whatever it walks : which flavour of Glob is in the digest, and the
+     * generated Glob's own package was never anything the emitted code needed — it reads public fields.
+     * <p>
+     * The Glob class is in the digest because it is what the emitted code reads : until the Glob classes
+     * themselves are named this way, a caller over a generated Glob inherits their per-run numbering, while
+     * a caller over core's DefaultGlob is already the same in every run.
+     */
+    static String getCallerName(String globInternalName, Access access, GlobType type, String name) {
         String simple = globInternalName.substring(globInternalName.lastIndexOf('/') + 1);
-        return globInternalName.substring(0, globInternalName.lastIndexOf('/') + 1)
-               + "GeneratedFunctionCaller_" + simple.substring(simple.lastIndexOf('_') + 1) + "_" + id;
+        return CALLER_PACKAGE + GeneratedName.unique("Caller",
+                new String[]{name, GeneratedName.simpleName(type.getName())},
+                name, type.getName(), simple, access.name(), layout(type));
+    }
+
+    /** Everything of the type the emitted call is written against : the field it reads, and how. */
+    private static String layout(GlobType type) {
+        StringBuilder builder = new StringBuilder();
+        for (Field field : type.getFields()) {
+            builder.append(field.getIndex()).append(':')
+                    .append(AsmFactoryGenerator.fieldName(field)).append(':')
+                    .append(field.getDataType()).append(';');
+        }
+        return builder.toString();
     }
 
     private static String functionName(Field field) {
         return "fn_" + field.getIndex();
     }
 
-    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access,
-                                 int id) {
+    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access) {
         Field[] fields = type.getFields();
         boolean is32Bit = type.getFieldCount() <= 32;
 
@@ -216,8 +229,11 @@ public class AsmCallerGenerator {
         {
             MethodVisitor methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitLdcInsn(id);
-            methodVisitor.visitMethodInsn(INVOKESTATIC, GENERATOR, "getFunctions", "(I)" + FUNCTIONS_DESC, false);
+            // its own name, which is the key it was registered under : a constant the class already implies,
+            // so the bytes stay a pure function of what the name digests
+            methodVisitor.visitLdcInsn(callerName);
+            methodVisitor.visitMethodInsn(INVOKESTATIC, GENERATOR, "getFunctions",
+                    "(Ljava/lang/String;)" + FUNCTIONS_DESC, false);
             methodVisitor.visitVarInsn(ASTORE, 0);
             for (Field field : fields) {
                 methodVisitor.visitVarInsn(ALOAD, 0);

@@ -85,7 +85,7 @@ public class GeneratedCallerTest {
         GlobFactory factory = type.getGlobFactory();
         Assertions.assertInstanceOf(GlobGenerateFactory.class, factory,
                 "the generated factory is the way in : " + factory.getClass().getName());
-        return ((GlobGenerateFactory) factory).create(recorder());
+        return ((GlobGenerateFactory) factory).create("test", recorder());
     }
 
     private List<Seen> call(GeneratedFunctionCaller<List<Seen>, String> caller, MutableGlob glob) {
@@ -159,14 +159,14 @@ public class GeneratedCallerTest {
     public void typesWithoutAGeneratedClassFallBackToTheLoopedCaller() {
         GlobType none = build(null, "CallerNoBuilder", 10);
         Assertions.assertFalse(none.getGlobFactory() instanceof GlobGenerateFactory);
-        GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor(none, recorder());
+        GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor("test", none, recorder());
         Assertions.assertInstanceOf(DefaultFunctionCaller.class, caller);
         checkStates(none, caller, 10);
 
         // above 64 fields both generators hand the type back to core
         GlobType tooWide = build(OBJECT, "CallerTooWide", 70);
         Assertions.assertFalse(tooWide.getGlobFactory() instanceof GlobGenerateFactory);
-        GeneratedFunctionCaller<List<Seen>, String> wideCaller = GenerateCaller.callerFor(tooWide, recorder());
+        GeneratedFunctionCaller<List<Seen>, String> wideCaller = GenerateCaller.callerFor("test", tooWide, recorder());
         Assertions.assertInstanceOf(DefaultFunctionCaller.class, wideCaller);
         checkStates(tooWide, wideCaller, 70);
     }
@@ -190,7 +190,7 @@ public class GeneratedCallerTest {
                     type.instantiate().getClass().getSimpleName(), count + " fields");
 
             GeneratedFunctionCaller<List<Seen>, String> caller =
-                    AsmCallerGenerator.forDefaultGlob(type).create(recorder());
+                    AsmCallerGenerator.forDefaultGlob(type).create("test", recorder());
             Assertions.assertFalse(caller instanceof DefaultFunctionCaller,
                     "this one is generated, unlike the fallback");
             checkStates(type, caller, count);
@@ -204,13 +204,13 @@ public class GeneratedCallerTest {
     @Test
     public void theServiceMakesCallerForGenerateOverACoreDefaultGlob() {
         GlobType type = build(null, "CallerService", 20);
-        Assertions.assertInstanceOf(DefaultFunctionCaller.class, GenerateCaller.callerFor(type, recorder()),
+        Assertions.assertInstanceOf(DefaultFunctionCaller.class, GenerateCaller.callerFor("test", type, recorder()),
                 "the loop, until the service is installed");
 
         System.setProperty("globs.caller", AsmCallerGeneratorService.class.getName());
         GenerateCallerService.Builder.reset();
         try {
-            GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor(type, recorder());
+            GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor("test", type, recorder());
             Assertions.assertFalse(caller instanceof DefaultFunctionCaller, "generated now");
             checkStates(type, caller, 20);
         } finally {
@@ -232,7 +232,7 @@ public class GeneratedCallerTest {
             Assertions.assertTrue(type.getGlobFactory() instanceof GlobGenerateFactory);
             // the service refuses a generated Glob, so this can only come from the factory
             Assertions.assertNull(new AsmCallerGeneratorService().getGenerateCaller(type));
-            checkStates(type, GenerateCaller.callerFor(type, recorder()), 20);
+            checkStates(type, GenerateCaller.callerFor("test", type, recorder()), 20);
         } finally {
             System.clearProperty("globs.caller");
             GenerateCallerService.Builder.reset();
@@ -252,7 +252,7 @@ public class GeneratedCallerTest {
                     .forEach(i -> glob.setValue(fields[i], sample(fields[i])));
 
             Assertions.assertEquals(call(new DefaultFunctionCaller<>(type, recorder()), glob),
-                    call(AsmCallerGenerator.forDefaultGlob(type).create(recorder()), glob),
+                    call(AsmCallerGenerator.forDefaultGlob(type).create("test", recorder()), glob),
                     count + " fields");
         }
     }
@@ -262,7 +262,7 @@ public class GeneratedCallerTest {
     public void callerForPrefersTheGeneratedCaller() {
         for (String service : List.of(OBJECT, PRIMITIVE)) {
             GlobType type = build(service, "CallerForGen" + service.hashCode(), 10);
-            GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor(type, recorder());
+            GeneratedFunctionCaller<List<Seen>, String> caller = GenerateCaller.callerFor("test", type, recorder());
             Assertions.assertFalse(caller instanceof DefaultFunctionCaller, service);
             checkStates(type, caller, 10);
         }

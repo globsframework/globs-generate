@@ -15,8 +15,9 @@ import static org.objectweb.asm.Opcodes.*;
  * <p>
  * Unlike the Glob and factory generators, these classes are written with COMPUTE_FRAMES : the null handling
  * of the primitive flavour is branchy, and hand-computing those frames buys nothing but VerifyErrors.
- * getCommonSuperClass is short-circuited because the generated Glob lives in a throwaway ClassLoader that
- * ASM cannot resolve — no frame merge in the emitted methods needs a precise common supertype.
+ * getCommonSuperClass is short-circuited because the generated Glob lives in {@link GeneratedClassLoader},
+ * which is a child of the loader ASM itself runs in and therefore invisible to it — no frame merge in the
+ * emitted methods needs a precise common supertype anyway.
  */
 public class AsmAccessorGenerator {
     private static final String GET_BASE = "org/globsframework/model/generator/AbstractGeneratedGetAccessor";
@@ -26,8 +27,9 @@ public class AsmAccessorGenerator {
     private static final String FIELD_DESC = "Lorg/globsframework/core/metamodel/fields/Field;";
 
     /**
-     * The accessors of one generated type : each call loads the class the throwaway ClassLoader emits for
-     * that field and direction. Called once per field per direction, from the factory's constructor.
+     * The accessors of one generated type : each call loads the class {@link GeneratedClassLoader} was told
+     * to emit for that field and direction. Called once per field per direction, from the factory's
+     * constructor.
      * <p>
      * A failure here is a generation bug, not something a caller can act on, hence the unchecked wrapper :
      * the constructor of a GlobFactory cannot sensibly declare ReflectiveOperationException.
@@ -56,21 +58,28 @@ public class AsmAccessorGenerator {
     }
 
     public static String getGetAccessorName(String globInternalName, int index) {
-        return packageOf(globInternalName) + "GeneratedGetAccessor_" + suffixOf(globInternalName) + "_" + index;
+        return packageOf(globInternalName) + "Get_" + keyOf(globInternalName) + "_" + index;
     }
 
     public static String getSetAccessorName(String globInternalName, int index) {
-        return packageOf(globInternalName) + "GeneratedSetAccessor_" + suffixOf(globInternalName) + "_" + index;
+        return packageOf(globInternalName) + "Set_" + keyOf(globInternalName) + "_" + index;
     }
 
     private static String packageOf(String internalName) {
         return internalName.substring(0, internalName.lastIndexOf('/') + 1);
     }
 
-    /** GeneratedGlob_7 -> 7, so accessor names stay unique across types. */
-    private static String suffixOf(String internalName) {
+    /**
+     * {@code Glob_DummyObject_ab12cd34ef56 -> DummyObject_ab12cd34ef56} : the family key, which is what
+     * makes an accessor name unique across types — and stable across runs, since the key is.
+     * <p>
+     * Everything after the <em>first</em> underscore, i.e. the prefix removed rather than the last segment
+     * kept : a key ends in a digest, but it ends in an ordinal instead when a family had to be built twice,
+     * and two families whose keys differed only there would then get the same accessor names.
+     */
+    private static String keyOf(String internalName) {
         String simple = internalName.substring(internalName.lastIndexOf('/') + 1);
-        return simple.substring(simple.lastIndexOf('_') + 1);
+        return simple.substring(simple.indexOf('_') + 1);
     }
 
     private static ClassWriter newClassWriter() {

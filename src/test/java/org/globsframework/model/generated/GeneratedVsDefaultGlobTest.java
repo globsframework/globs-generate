@@ -81,7 +81,7 @@ public class GeneratedVsDefaultGlobTest {
 
         if (service != null) {
             // guards the guard : an inert generator would make every comparison trivially true
-            Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.model.generated."),
+            Assertions.assertTrue(glob.getClass().getName().startsWith("org.globsframework.gen."),
                     "not a generated glob : " + glob.getClass().getName());
         }
 

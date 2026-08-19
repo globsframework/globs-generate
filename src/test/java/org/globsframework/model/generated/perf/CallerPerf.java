@@ -97,7 +97,7 @@ public class CallerPerf {
         coreFields = coreType.getFields();
         coreAccessors = accessorsOf(coreType);
         coreFunctions = functionsOf(coreType);
-        coreCaller = AsmCallerGenerator.forDefaultGlob(coreType).create(functions());
+        coreCaller = AsmCallerGenerator.forDefaultGlob(coreType).create("perf", functions());
         coreDefaultCaller = new DefaultFunctionCaller<>(coreType, functions());
     }
 
@@ -160,7 +160,7 @@ public class CallerPerf {
     }
 
     private GeneratedFunctionCaller<SerializedOutput, Void> callerOf(GlobType type) {
-        return ((GlobGenerateFactory) type.getGlobFactory()).create(functions());
+        return ((GlobGenerateFactory) type.getGlobFactory()).create("perf", functions());
     }
 
     private GenerateCaller.GetFieldValueFunction<SerializedOutput, Void> functions() {

@@ -137,12 +137,12 @@ public class CallerWritePerf {
         denseScript = new Script(denseKeys);
         sparseScript = new Script(sparseKeys);
 
-        denseDefaultCaller = DefaultFunctionCallerWrite.INSTANCE.create(dense, null, END);
-        denseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create(dense, null, END);
-        sparseDefaultCaller = DefaultFunctionCallerWrite.INSTANCE.create(sparse, null, END);
-        sparseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create(sparse, null, END);
-        defaultCallerAll = DefaultFunctionCallerWrite.INSTANCE.create(allFunctions);
-        generatedCallerAll = AsmCallerWriteGenerator.INSTANCE.create(allFunctions);
+        denseDefaultCaller = DefaultFunctionCallerWrite.INSTANCE.create("perf", dense, null, END);
+        denseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create("perf", dense, null, END);
+        sparseDefaultCaller = DefaultFunctionCallerWrite.INSTANCE.create("perf", sparse, null, END);
+        sparseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create("perf", sparse, null, END);
+        defaultCallerAll = DefaultFunctionCallerWrite.INSTANCE.create("perf", allFunctions);
+        generatedCallerAll = AsmCallerWriteGenerator.INSTANCE.create("perf", allFunctions);
     }
 
     private static MutableFunctionWrite<SerializedInput, Void, Void> functionFor(Field field) {

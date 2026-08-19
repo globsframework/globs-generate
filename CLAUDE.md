@@ -110,9 +110,9 @@ Against the `doGet`/`doSet`-based accessors this replaced (measured on the primi
 `AccessorPerf`, while the switch still existed): `getNative` ×1.8, `setNative` ×1.4, String get/set ×1.35,
 `isSet` ×1.47, `isNull` ×1.37.
 
-The provider has to come from outside because it closes over the throwaway `ClassLoader` holding the
-accessor classes, which only the generator has: it travels through the same per-id channel as the
-`GlobType` (`AsmGlob*Generator.getAccessors(id)`, read by the generated `<init>` — see below). One
+The provider has to come from outside because only the generator knows which classes to load for a field —
+it travels through the same per-family channel as the `GlobType` (`AsmGlob*Generator.getAccessors(key)`,
+read by the generated `<init>` — see below). One
 consequence to keep in mind: the accessor classes, and through them the generated Glob class, are now
 loaded from **inside the factory's constructor**, itself inside `loadClass(factoryName)` on that same
 loader. That re-entrancy is fine (same thread, and the factory's `<clinit>` has already completed, so the
@@ -139,8 +139,8 @@ Constraints that fall out of generating accessors, all of them load-time failure
 - The mask width is the **type's**, not the field's : a type with 40 fields uses the `long` base for all of
   them, so `generateGet` takes `is32Bit` from `globType.getFieldCount() <= 32`, never from the field index.
 - `AsmAccessorGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS`, unlike the rest of the module, and
-  short-circuits `getCommonSuperClass` to `java/lang/Object` because the generated Glob lives in a throwaway
-  `ClassLoader` that ASM cannot resolve. The primitive null handling is branchy; hand-computed frames there
+  short-circuits `getCommonSuperClass` to `java/lang/Object` because the generated Glob lives in
+  `GeneratedClassLoader`, a child of the loader ASM itself runs in and therefore invisible to it. The primitive null handling is branchy; hand-computed frames there
   buy nothing but `VerifyError`s.
 - In `setNative`, a `long`/`double` argument occupies **two** local slots (2 and 3), so the cast Glob goes to
   slot 4. Getting this wrong is a `VerifyError: Bad local variable type`.
@@ -159,20 +159,20 @@ implementation, `AsmCallerGenerator`, reached through `AbstractGeneratedGlobFact
 
 ```java
 GeneratedFunctionCaller<Out, Void> caller = type.getGlobFactory() instanceof GlobGenerateFactory generate
-        ? generate.create(field -> functionFor(field))   // GetFieldValueFunction, one call per field
+        ? generate.create("mycodec.write", field -> functionFor(field))  // one call per field
         : null;                                          // not generated : see callerFor below
 caller.call(glob, out, null);                            // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
 ```
 
-but the cast is not what a downstream module should write. **`GenerateCaller.callerFor(type, functions)`** does
+but the cast is not what a downstream module should write. **`GenerateCaller.callerFor(name, type, functions)`** does
 it and falls back to a `DefaultFunctionCaller` — the plain loop over the same function table, through
 `Glob.getValue` — for a type that has no generated class (module not installed, `mode none`, or more than 64
 fields). Same behaviour, same order, same isSet/isNull/value, so the caller keeps one code path and only the
 speed changes; `theLoopedCallerAndTheGeneratedOneAgree` is what holds the two to that.
 
 `AsmCallerGenerator` emits, per `create` call, a class with one `public static final FieldValueFunction` per
-field (`fn_<index>`, filled in `<clinit>` from `getFunctions(id)`) and a `call` unrolled over them. The point
-is **not** saving the loop: a `static final` read is a JIT constant, so each `INVOKEINTERFACE call` sees a
+field (`fn_<index>`, filled in `<clinit>` from `getFunctions(<its own class name>)`) and a `call` unrolled
+over them. The point is **not** saving the loop: a `static final` read is a JIT constant, so each `INVOKEINTERFACE call` sees a
 single receiver and inlines, where the one call site of a hand-written loop sees every function of every
 field of every type and stays megamorphic. That is what `globs-bin-serialisation` and `globs-grpc` pay today.
 
@@ -187,13 +187,18 @@ Consequences of that design, all deliberate:
 
 - **a class per `create`, not per type**. Two callers over the same type hold different functions; sharing
   the class would put them back on the same call sites. So `create` belongs to the setup phase of a codec,
-  and each caller costs one class in metaspace (in a child `ClassLoader` of the Glob's, thrown away with it).
+  and each caller costs one class in metaspace, in `GeneratedClassLoader` and for the life of the process.
 - the caller **reads the Glob's public value fields and masks directly**, so `call` starts with a `CHECKCAST`
   to the generated Glob class: a Glob of that type from another factory is a `ClassCastException`. Same bet
   the generated accessors already make.
-- it must therefore be **loaded by a child of the throwaway loader** holding the Glob class, which only the
-  generator has — hence the `GenerateCaller` travelling to `AbstractGeneratedGlobFactory`'s constructor
-  through the `PENDING` map, exactly like the `AccessorProvider` next to it.
+- it is therefore **defined in the same loader as that Glob class**, `GeneratedClassLoader` — it used to
+  need a child loader of the Glob's, which sharing one loader removed. The `GenerateCaller` still travels to
+  `AbstractGeneratedGlobFactory`'s constructor through the `PENDING` map, exactly like the `AccessorProvider`
+  next to it, because what the factory cannot know on its own is now the Glob class and its flavour rather
+  than the loader. That map is keyed by the **name
+  of the class being generated**, and its `<clinit>` passes its own name back — `getFunctions(String)`. It
+  used to be an `int` from a global counter, LDC'd into the bytes, which made the emitted bytes differ from
+  one run to the next for no reason (see *Naming* below).
 - `isSet` is `(isSet >>> index) & 1` and, on the primitive flavour, `isNull` is `((isNull | ~isSet) >>> index)
   & 1` — branchless, and saying the same thing as the Glob: `isNull` is what `doGet` answers null for, so a
   field that was never set is `isSet false, isNull true, value null`. On the object flavour `isNull` is the
@@ -298,10 +303,11 @@ emitted per `create` call, both holding their functions in `public static final`
 ```java
 GeneratedFunctionCallerWrite factory = GeneratedFunctionCallerWrite.get();   // this, or core's loop
 SortedMap<Integer, MutableFunctionWrite<In, Void, Void>> functions = new TreeMap<>();  // key -> what to write
-GeneratedCallerWrite<In, Void, Void> caller = factory.create(functions, skipUnknown, -1);
+GeneratedCallerWrite<In, Void, Void> caller = factory.create("myformat.read." + type.getName(),
+                                                            functions, skipUnknown, -1);
 caller.call(parser, type.instantiate(), in, null, null);   // loops until parser answers -1
 
-GeneratedCallerWriteAll<In, Void, Void> all = factory.create(functionArray);
+GeneratedCallerWriteAll<In, Void, Void> all = factory.create("myformat.readAll", functionArray);
 all.call(glob, in, null, null);                            // every function once, in array order
 ```
 
@@ -333,7 +339,8 @@ What is different from the read side, and worth knowing before reaching for one:
 
 - **nothing reads a Glob's layout.** The functions write through `MutableGlob`, so there is no `GlobType` to
   walk, no `CHECKCAST` to a generated Glob class, and no ClassLoader to borrow from a factory — the emitted
-  code names core interfaces only, and the caller is defined in a throwaway child of *this module's* loader.
+  code names core interfaces only, and the caller resolves everything through `GeneratedClassLoader`'s
+  parent, which is *this module's* loader.
   It therefore works over any Glob, `globs.builder` set or not, and `create` takes functions rather than a
   type;
 - the keys are **arbitrary ints**, sorted by the generator rather than taken as the `SortedMap` iterates
@@ -439,22 +446,126 @@ JDK 26) would change something here: nothing at the first level, since a `static
 already un-mutable by reflection, but making final mean final is what would let HotSpot turn
 `TrustFinalNonStaticFields` on by default and give the ordinary-class case what records get today.
 
+## Naming : the same class from one run to the next
+
+Both caller generators take a **name from the caller** — `create(name, …)`, `GenerateCaller.callerFor(name,
+type, fns)` — and it is not decoration: it is what the emitted class is named after.
+
+The reason is AOT (JDK 24's AOT cache and what builds on it). A class of a user-defined class loader is
+matched against the cache on its **name and its bytes**, so a class named from a counter (`GeneratedGlob_7`,
+`GeneratedCallerWrite_3`) matches nothing: the number depends only on the order types and codecs happened to
+be built in. The generator can supply the type and the shape it generates over, but not what the caller *is* —
+hence `CallerName` in core (`org.globsframework.core.model.generate`), where the contract lives: one purpose
+per code path that builds callers (`"binser.write"`), constant in the source. A name built from something
+that varies per run is accepted and silently gives up the identity it asked for. Null or blank is refused —
+in core, so the loop refuses exactly what the generators refuse and a name cannot be missing on one
+deployment and required on another.
+
+`GeneratedName` builds the class name out of two halves:
+
+- a **readable** part, sanitised (`[^\w]` → `_`), for stack traces and profiles only — the purpose, and the
+  type name where there is one. Each part is capped **on its own** (20 characters), and the type keeps only
+  its simple name: a GlobType is usually named after a fully qualified class, so capping the pair as one
+  string dropped the very end that told two callers apart, and the package repeats over every type of an
+  application anyway. Both are whole in the digest, so nothing is lost by cutting here;
+- a **digest** (SHA-256, 12 hex, lower case) of *everything the emitted bytes depend on*: the purpose, the
+  type name, the Glob class the `CHECKCAST` names, the flavour, the field layout on the read side; the keys,
+  the presence of a fallback and the `endLoop` value on the write side — plus a `FORMAT` constant to bump by
+  hand whenever the emitted bytecode changes in a way none of those describe.
+
+So: `org.globsframework.gen.write.Caller_binser_read_84fc324d4beb`,
+`org.globsframework.gen.read.Caller_binser_write_the_who_DummyObject_a23f6dfead26` — 60 to 80 characters,
+against 90 to 125 for the same names spelled out in full. Length is worth this much attention because a
+class name is what a flame graph shows, and because the day these classes are written to disk — a bytes
+cache, or the build-time generation that would make them ordinary classpath classes — the name **is** a file
+path, where 255 bytes per component is a limit rather than an annoyance. One package per side
+(`gen.read`, `gen.write`), and the prefix says the shape (`Caller`, `CallerAll`) since the package says the
+rest; which flavour of Glob a read caller walks lives in the digest, not in the package it used to pick.
+
+The invariant the digest buys is that **two runs can only produce the same name for byte-identical
+classes** — cutting the readable part can therefore be lossy, and a stale cache entry can never be taken for
+a fresh one. Anything that changes a byte and is not in the digest breaks that, which is the one thing to
+check when touching a generator.
+
+One purpose asked twice for the same shape (a codec built twice — two `BinReaderFactory` in one process) is
+still two classes, since they hold different functions. The second gets a `_1` suffix: the first keeps the
+reproducible name, and the duplicates pay for the collision rather than everybody. That suffix is also what
+makes the `PENDING` key unique, so two concurrent `create` calls never race over one entry.
+
+`GeneratedCallerIdentityTest` is the guard, and the half that matters is **forked**: the same callers built
+in a second JVM, and in a third that built five unrelated callers first, have to print the same class names.
+A global counter, a `HashMap` iteration order or an identity hash all survive an in-process assertion and
+die there.
+
+The Glob generators work the same way, one **family** at a time: the Glob, its factory and its two accessors
+per field share one key (`GeneratedName.family`, made unique once rather than four times, so the four names
+cannot drift apart) and land in `org.globsframework.gen.obj` / `.prim`:
+
+```
+org.globsframework.gen.obj.Glob_Family_634101968fda
+org.globsframework.gen.obj.Factory_Family_634101968fda
+org.globsframework.gen.obj.Get_Family_634101968fda_3
+org.globsframework.gen.obj.Set_Family_634101968fda_3
+org.globsframework.gen.read.Caller_binser_write_Family_a7f36f8ef1a3
+```
+
+A family's digest covers the flavour, the full type name, the layout (index, sanitised name and `DataType`
+per field — which is also the mask width) and the `accessors` option; that last one changes no emitted byte,
+but it changes what the factory is handed, so two families built from one type with different options are two
+families rather than one asked twice. The key is what the generated `<clinit>` and `<init>` LDC to reach
+their `PENDING` entry — half of their own name, where an `int` off a global counter used to be, which is what
+made the bytes themselves differ from one run to the next. A caller over a generated Glob names that Glob
+class in its digest, so it became reproducible with it: the last line above is what the second fork of
+`GeneratedCallerIdentityTest` checks, on both flavours.
+
+### The loader
+
+The other half, because an AOT cache matches a class of a user-defined loader on **the loader** as well as
+on its name and bytes. Every class this module emits — Globs, factories, accessors, callers — is now defined
+in one `GeneratedClassLoader`: an ordinary named class rather than an `AsmGlobObjectGenerator$1`, one
+instance for the process, `getName()` answering `globs-generated`, parented to this module's own loader
+(which is all the emitted code ever names besides its siblings). A generation `emit`s a supplier per class
+name and then `load`s what it needs; `registerAsParallelCapable` because types are built on whatever thread
+core happens to be on. It also removed the child loader the read callers used to need to see their Glob
+class.
+
+**Nothing is deduplicated by key, and that is not an oversight.** A generated factory holds a
+`static final TYPE` bound to one GlobType *instance*, so two distinct types that happen to share a name and
+a layout — the same family key — must still get two classes, or the second factory would answer the first
+type (`concurrentGenerationWiresEachFactoryToItsOwnType`). The suffix `GeneratedName` adds to a key already
+in use is what keeps them apart, and it is what makes one shared loader possible at all : without it, the
+second family would be a duplicate class definition rather than a second class.
+`GeneratedClassLoaderTest.twoTypesWithTheSameKeyGetTwoClassesInTheOneLoader` is that test, and `emit`
+refusing a name already spoken for is the same invariant checked from the other side.
+
+**The consequence to know**: a generated class now lives as long as the process, where a throwaway loader
+was collectable with the factory or caller it was built for. For Globs that changes little — a GlobType is
+normally built once and kept — but an application building throwaway types, or rebuilding a codec over and
+over, now accumulates classes in metaspace. The way out, if it ever matters, is a second instance of this
+loader per disposable domain, not a return to anonymous ones: the name is what has to be kept.
+
 ## How generation works
 
 `AsmGlobObjectGenerator.create(GlobType)` / `AsmGlobPrimitiveGenerator.create(GlobType)` each:
 
-1. take a fresh `id` from a static `AtomicInteger`, and build a throwaway child `ClassLoader` whose
-   `findClass` emits two classes on demand: `…generated/{object,primitive}/GeneratedGlob_<id>` and
-   `GeneratedGlobFactory_<id>`;
-2. **register the `GlobType` and an `AccessorProvider` under that `id`** in the generator's `PENDING` map.
-   The generated factory's `<clinit>` calls `AsmGlob*Generator.getType(<id>)` and copies the result into its
-   own `TYPE`; its `<init>` calls `getAccessors(<id>)` and passes it straight to the super constructor.
-   Keyed by id, so `create` is *not* `synchronized` and concurrent generation of two types is safe
+1. compute the **family key** of the type (`familyKey`, see *Naming* above), and tell
+   `GeneratedClassLoader` how to emit each class of the family — `org/globsframework/gen/{obj,prim}/Glob_<key>`
+   and `Factory_<key>`, plus `Get_<key>_<index>` / `Set_<key>_<index>` **only when the accessors are
+   generated**, since an emitter that is never used would hold on to the GlobType it closes over.
+   `AsmAccessorGenerator` reads that key back off the Glob's name: everything before the first underscore is
+   the prefix, everything after it is the key. Nothing is generated at this point — `emit` registers a
+   supplier, and a Glob's bytes are built at the earliest inside its factory's constructor;
+2. **register the `GlobType` and an `AccessorProvider` under that key** in the generator's `PENDING` map.
+   The generated factory's `<clinit>` calls `AsmGlob*Generator.getType(<key>)` and copies the result into its
+   own `TYPE`; its `<init>` calls `getAccessors(<key>)` and passes it straight to the super constructor. The
+   key is LDC'd into the generated bytes, and it is half of the class's own name, so the bytes hold nothing
+   that varies from one run to the next — it used to be an `int` off a global counter, which is what made
+   these classes unrecognisable to an AOT cache. Keyed per family, so `create` is *not* `synchronized` and
+   concurrent generation of two types is safe
    (`GeneratedFactoryActiveTest.concurrentGenerationWiresEachFactoryToItsOwnType` pins it — it was a
    single-slot static `TYPE` channel before, which is what the `synchronized` used to protect). The entry is
-   removed in a `finally`, so the map keeps alive neither a `GlobType` nor the throwaway `ClassLoader` the
-   provider closes over; both getters throw `IllegalStateException` if a generated class is somehow
-   initialized outside of `create`.
+   removed in a `finally`, so the map holds no `GlobType` past the generation that registered it; both
+   getters throw `IllegalStateException` if a generated class is somehow initialized outside of `create`.
 3. load the factory class and instantiate it — and that is all. **Instantiating** is what triggers both the
    `<clinit>` and the `<init>` above, while the map entry is still there, and the constructor pulling its
    accessors out of the provider is what loads the accessor classes and the Glob class.

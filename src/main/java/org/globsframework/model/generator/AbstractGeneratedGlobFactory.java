@@ -48,8 +48,8 @@ public abstract class AbstractGeneratedGlobFactory implements GlobGenerateFactor
      * Generates a caller over the generated Glob class of this type. Comes from the generator rather than
      * being built here, because only the generator holds the ClassLoader that can resolve that class.
      */
-    public <D, E> GeneratedFunctionCaller<D, E> create(GenerateCaller.GetFieldValueFunction<D, E> getFieldValueFunction) {
-        return callerGenerator.create(getFieldValueFunction);
+    public <D, E> GeneratedFunctionCaller<D, E> create(String name, GenerateCaller.GetFieldValueFunction<D, E> getFieldValueFunction) {
+        return callerGenerator.create(name, getFieldValueFunction);
     }
 
     public GlobGetAccessor getGetValueAccessor(Field field) {

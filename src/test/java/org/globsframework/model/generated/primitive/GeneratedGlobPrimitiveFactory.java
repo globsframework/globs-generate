@@ -18,8 +18,8 @@ public class GeneratedGlobPrimitiveFactory implements GlobFactory {
     public static final IntegerArrayField f2;
 
     static {
-        // the generator emits its own id here, not the literal 1
-        TYPE = AsmGlobPrimitiveGenerator.getType(1);
+        // the generator emits the family key of this class here -- half of its own name -- not a literal
+        TYPE = AsmGlobPrimitiveGenerator.getType("Ref_0000deadbeef");
         f1 = (IntegerField) TYPE.findField("i1");
         f2 = (IntegerArrayField) TYPE.findField("i2");
     }

@@ -52,7 +52,7 @@ public class AccessorPerf {
         defaultGlob = build(null);
 
         String generatedName = generated.getInt.getClass().getName();
-        if (!generatedName.startsWith("org.globsframework.model.generated.")) {
+        if (!generatedName.startsWith("org.globsframework.gen.")) {
             throw new IllegalStateException("accessors are not generated : " + generatedName);
         }
     }

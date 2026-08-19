@@ -53,7 +53,7 @@ public class GeneratedOptionTest {
     private boolean accessorsAreGenerated(GlobType type) {
         Field field = type.getField("i");
         return type.getGlobFactory().getGetValueAccessor(field).getClass().getName()
-                .startsWith("org.globsframework.model.generated.");
+                .startsWith("org.globsframework.gen.");
     }
 
     @Test

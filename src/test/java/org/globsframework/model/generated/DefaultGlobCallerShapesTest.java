@@ -37,7 +37,7 @@ public class DefaultGlobCallerShapesTest {
         for (int count : new int[]{20, 45, 100, 200}) {
             GlobType type = declare("Shape" + count, count);
             MutableGlob glob = fill(type, count);
-            List<String> generated = trace(AsmCallerGenerator.forDefaultGlob(type).create(recorder()), glob);
+            List<String> generated = trace(AsmCallerGenerator.forDefaultGlob(type).create("shapes", recorder()), glob);
             List<String> looped = trace(new DefaultFunctionCaller<>(type, recorder()), glob);
             System.out.println(count + " " + type.instantiate().getClass().getSimpleName()
                                + " " + (generated.equals(looped) ? "OK" : "MISMATCH " + firstDiff(looped, generated)));

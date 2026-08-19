@@ -8,13 +8,14 @@ import org.globsframework.model.generator.DoGetAccessorProvider;
 import org.globsframework.model.generator.AsmAccessorGenerator;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmFactoryGenerator;
+import org.globsframework.model.generator.GeneratedClassLoader;
+import org.globsframework.model.generator.GeneratedName;
 import org.globsframework.core.model.generate.read.GenerateCaller;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.*;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
@@ -22,11 +23,12 @@ import static org.objectweb.asm.Opcodes.*;
 
 public class AsmGlobPrimitiveGenerator {
     public static final Pattern COMPILE = Pattern.compile("[^\\w]");
-    static AtomicInteger ID = new AtomicInteger();
-    // What the generated factory reads while it is being built : its <clinit> calls getType(id) and its
-    // <init> getAccessors(id). The entry lives only for the duration of create, so nothing here keeps a
-    // GlobType -- or the throwaway ClassLoader the provider closes over -- alive.
-    private static final Map<Integer, Pending> PENDING = new ConcurrentHashMap<>();
+    private static final String PACKAGE = "org/globsframework/gen/prim/";
+    // What the generated factory reads while it is being built : its <clinit> calls getType(key) and its
+    // <init> getAccessors(key), passing back the family key LDC'd into its own bytes -- half of its own
+    // name, so nothing here varies from one run to the next. The entry lives only for the duration of
+    // create, so nothing here keeps a GlobType alive past the generation that registered it.
+    private static final Map<String, Pending> PENDING = new ConcurrentHashMap<>();
 
     private record Pending(GlobType type, AccessorProvider accessors, GenerateCaller callers) {
     }
@@ -43,48 +45,41 @@ public class AsmGlobPrimitiveGenerator {
      */
     public static GlobFactory create(GlobType globType, boolean generateAccessors) {
         try {
-            int id = ID.incrementAndGet();
-            ClassLoader bytesClassloader = new ClassLoader(AsmGlobPrimitiveGenerator.class.getClassLoader()) {
-                protected Class<?> findClass(String name) throws ClassNotFoundException {
-                    String internalName = name.replace('.', '/');
-                    if (internalName.equalsIgnoreCase(getGlobFactoryName(id))) {
-                        byte[] b = generateFactory(globType, id);
-                        return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                    } else if (internalName.equalsIgnoreCase(GenerateSetNullVisitor.getGlobName(id))) {
-                        byte[] b = generateGlob(id, globType);
-                        return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                    }
-                    String globName = GenerateSetNullVisitor.getGlobName(id);
-                    for (Field field : globType.getFields()) {
-                        byte[] b = null;
-                        if (internalName.equals(AsmAccessorGenerator.getGetAccessorName(globName, field.getIndex()))) {
-                            b = AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, true,
-                                    globType.getFieldCount() <= 32);
-                        } else if (internalName.equals(AsmAccessorGenerator.getSetAccessorName(globName, field.getIndex()))) {
-                            b = AsmAccessorGenerator.generateSet(globName, getFieldName(field), field, true);
-                        }
-                        if (b != null) {
-                            return super.defineClass(name.replace("/", "."), b, 0, b.length);
-                        }
-                    }
-                    return super.findClass(name);
+            String key = familyKey(globType, generateAccessors);
+            String globName = GenerateSetNullVisitor.getGlobName(key);
+            String factoryName = getGlobFactoryName(key);
+            GeneratedClassLoader loader = GeneratedClassLoader.get();
+
+            // said, not generated : the bytes are built when each class is first asked for, and the Glob's
+            // are, at the earliest, inside the factory's constructor
+            loader.emit(factoryName, () -> generateFactory(globType, key));
+            loader.emit(globName, () -> generateGlob(key, globType));
+            if (generateAccessors) {
+                // only then : with the doGet-based accessors nothing ever loads these, and an emitter that
+                // is never used would hold on to the GlobType it closes over
+                for (Field field : globType.getFields()) {
+                    loader.emit(AsmAccessorGenerator.getGetAccessorName(globName, field.getIndex()),
+                            () -> AsmAccessorGenerator.generateGet(globName, getFieldName(field), field, true,
+                                    globType.getFieldCount() <= 32));
+                    loader.emit(AsmAccessorGenerator.getSetAccessorName(globName, field.getIndex()),
+                            () -> AsmAccessorGenerator.generateSet(globName, getFieldName(field), field, true));
                 }
-            };
-            PENDING.put(id, new Pending(globType, generateAccessors
-                    ? AsmAccessorGenerator.providerFor(bytesClassloader, GenerateSetNullVisitor.getGlobName(id))
+            }
+
+            PENDING.put(key, new Pending(globType, generateAccessors
+                    ? AsmAccessorGenerator.providerFor(loader, globName)
                     : new DoGetAccessorProvider(),
-                    AsmCallerGenerator.generatorFor(bytesClassloader, GenerateSetNullVisitor.getGlobName(id),
-                            globType, true)));
+                    AsmCallerGenerator.generatorFor(loader, globName, globType, true)));
             try {
                 // newInstance triggers <clinit> then <init>, the two that read PENDING : the accessor
                 // classes, and through them the Glob class, are loaded from inside that constructor.
-                return (GlobFactory) bytesClassloader.loadClass(getGlobFactoryName(id))
+                return (GlobFactory) loader.load(factoryName)
                         .getDeclaredConstructor()
                         .newInstance();
             } catch (Throwable e) {
                 throw new RuntimeException("fail ", e);
             } finally {
-                PENDING.remove(id);
+                PENDING.remove(key);
             }
         } catch (Throwable e) {
             String mes = "Can not generate bytecode for " + globType.describe() + " : " + e.getMessage();
@@ -97,31 +92,49 @@ public class AsmGlobPrimitiveGenerator {
      * Called from the generated factory's {@code <clinit>}, which runs while create is still on the stack.
      * Replaces the former static TYPE single-slot channel, so create no longer has to be synchronized.
      */
-    public static GlobType getType(int id) {
-        return pending(id).type();
+    public static GlobType getType(String key) {
+        return pending(key).type();
     }
 
     /** Called from the generated factory's {@code <init>}, and handed straight to the super constructor. */
-    public static AccessorProvider getAccessors(int id) {
-        return pending(id).accessors();
+    public static AccessorProvider getAccessors(String key) {
+        return pending(key).accessors();
     }
 
     /** Called from the generated factory's {@code <init>} too, and handed straight to the super constructor. */
-    public static GenerateCaller getCallerGenerator(int id) {
-        return pending(id).callers();
+    public static GenerateCaller getCallerGenerator(String key) {
+        return pending(key).callers();
     }
 
-    private static Pending pending(int id) {
-        Pending pending = PENDING.get(id);
+    private static Pending pending(String key) {
+        Pending pending = PENDING.get(key);
         if (pending == null) {
-            throw new IllegalStateException("Nothing registered for generated factory " + id
+            throw new IllegalStateException("Nothing registered for generated factory " + key
                                             + " : the generated class was initialized outside of create.");
         }
         return pending;
     }
 
-    private static String getGlobFactoryName(int id) {
-        return "org/globsframework/model/generated/primitive/GeneratedGlobFactory_" + id;
+    /**
+     * The key the whole family shares : the Glob, its factory and its accessors are named from it, and it is
+     * what the generated {@code <clinit>} and {@code <init>} pass back to reach their PENDING entry. Readable
+     * half plus a digest of everything the emitted bytes depend on — see {@link GeneratedName}.
+     * <p>
+     * The accessors flag is in there although it changes no byte : it changes what the factory is handed, so
+     * two families built from the same type with different options are two families, not one asked twice.
+     */
+    private static String familyKey(GlobType globType, boolean generateAccessors) {
+        StringBuilder layout = new StringBuilder();
+        for (Field field : globType.getFields()) {
+            layout.append(field.getIndex()).append(':').append(getFieldName(field)).append(':')
+                    .append(field.getDataType()).append(';');
+        }
+        return GeneratedName.family(new String[]{GeneratedName.simpleName(globType.getName())},
+                "primitive", globType.getName(), Boolean.toString(generateAccessors), layout.toString());
+    }
+
+    private static String getGlobFactoryName(String key) {
+        return PACKAGE + "Factory_" + key;
     }
 
     private static int getIndex(int pos) {
@@ -135,15 +148,15 @@ public class AsmGlobPrimitiveGenerator {
     private static final String FIELDS = "org/globsframework/core/metamodel/fields/";
 
     /** Jumps to target when the index-th bit of the mask of the Glob in slot 0 matches : IFEQ clear, IFNE set. */
-    private static void jumpOnMaskBit(MethodVisitor methodVisitor, int id, String mask, int index,
+    private static void jumpOnMaskBit(MethodVisitor methodVisitor, String key, String mask, int index,
                                       boolean is32Bit, int jumpOpcode, Label target) {
         methodVisitor.visitVarInsn(ALOAD, 0);
         if (is32Bit) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), mask, "I");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), mask, "I");
             methodVisitor.visitLdcInsn(1 << index);
             methodVisitor.visitInsn(IAND);
         } else {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), mask, "J");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), mask, "J");
             methodVisitor.visitLdcInsn(1L << index);
             methodVisitor.visitInsn(LAND);
             methodVisitor.visitInsn(LCONST_0);
@@ -157,16 +170,16 @@ public class AsmGlobPrimitiveGenerator {
      * The GETSTATIC always uses the concrete *Field type; the call descriptor is the declared one, which
      * for FieldValues.Functor.process is (Field, Object) rather than the typed pair of a FieldValueVisitor.
      */
-    private static void emitVisit(MethodVisitor methodVisitor, int id, Field field, FieldVisitorToVisitName visitor,
+    private static void emitVisit(MethodVisitor methodVisitor, String key, Field field, FieldVisitorToVisitName visitor,
                                   Signature signature, boolean nullValue) {
         String constDesc = "L" + FIELDS + field.safeAccept(visitor.withFieldType()).name + ";";
         methodVisitor.visitVarInsn(ALOAD, 1);
-        methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), getFieldName(field), constDesc);
+        methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(key), getFieldName(field), constDesc);
         if (nullValue) {
             methodVisitor.visitInsn(ACONST_NULL);
         } else {
             methodVisitor.visitVarInsn(ALOAD, 0);
-            field.safeAccept(new GenerateGetVisitor(methodVisitor, id));
+            field.safeAccept(new GenerateGetVisitor(methodVisitor, key));
         }
         if (signature.withContext) {
             methodVisitor.visitVarInsn(ALOAD, 2);
@@ -190,7 +203,7 @@ public class AsmGlobPrimitiveGenerator {
      * branch targets are then reached with an empty stack, so every frame is F_SAME and the ClassWriter
      * can keep its flags at 0 rather than paying for COMPUTE_FRAMES.
      */
-    private static void generateUnrolledVisitor(ClassWriter classWriter, int id, Field[] fields, boolean is32Bit,
+    private static void generateUnrolledVisitor(ClassWriter classWriter, String key, Field[] fields, boolean is32Bit,
                                                 FieldVisitorToVisitName visitor, String name, String descriptor,
                                                 String genericSignature, Signature signature) {
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, name, descriptor,
@@ -199,13 +212,13 @@ public class AsmGlobPrimitiveGenerator {
         for (Field field : fields) {
             Label skip = new Label();
             Label nullValue = new Label();
-            jumpOnMaskBit(methodVisitor, id, "isSet", field.getIndex(), is32Bit, IFEQ, skip);
-            jumpOnMaskBit(methodVisitor, id, "isNull", field.getIndex(), is32Bit, IFNE, nullValue);
-            emitVisit(methodVisitor, id, field, visitor, signature, false);
+            jumpOnMaskBit(methodVisitor, key, "isSet", field.getIndex(), is32Bit, IFEQ, skip);
+            jumpOnMaskBit(methodVisitor, key, "isNull", field.getIndex(), is32Bit, IFNE, nullValue);
+            emitVisit(methodVisitor, key, field, visitor, signature, false);
             methodVisitor.visitJumpInsn(GOTO, skip);
             methodVisitor.visitLabel(nullValue);
             methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-            emitVisit(methodVisitor, id, field, visitor, signature, true);
+            emitVisit(methodVisitor, key, field, visitor, signature, true);
             methodVisitor.visitLabel(skip);
             methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
         }
@@ -217,32 +230,32 @@ public class AsmGlobPrimitiveGenerator {
     }
 
     /** accept(FieldValueVisitor), accept(FieldValueVisitorWithContext, CTX) and apply(FieldValues.Functor). */
-    private static void generateUnrolledVisitors(ClassWriter classWriter, int id, Field[] fields, boolean is32Bit,
+    private static void generateUnrolledVisitors(ClassWriter classWriter, String key, Field[] fields, boolean is32Bit,
                                                  FieldVisitorToVisitName visitor) {
-        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "accept",
+        generateUnrolledVisitor(classWriter, key, fields, is32Bit, visitor, "accept",
                 "(L" + FIELDS + "FieldValueVisitor;)L" + FIELDS + "FieldValueVisitor;",
                 "<T::L" + FIELDS + "FieldValueVisitor;>(TT;)TT;",
                 new Signature(FIELDS + "FieldValueVisitor", null, null, null, false));
 
-        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "accept",
+        generateUnrolledVisitor(classWriter, key, fields, is32Bit, visitor, "accept",
                 "(L" + FIELDS + "FieldValueVisitorWithContext;Ljava/lang/Object;)L" + FIELDS + "FieldValueVisitorWithContext;",
                 "<CTX:Ljava/lang/Object;T::L" + FIELDS + "FieldValueVisitorWithContext<TCTX;>;>(TT;TCTX;)TT;",
                 new Signature(FIELDS + "FieldValueVisitorWithContext", null, null, null, true));
 
-        generateUnrolledVisitor(classWriter, id, fields, is32Bit, visitor, "apply",
+        generateUnrolledVisitor(classWriter, key, fields, is32Bit, visitor, "apply",
                 "(Lorg/globsframework/core/model/FieldValues$Functor;)Lorg/globsframework/core/model/FieldValues$Functor;",
                 "<T::Lorg/globsframework/core/model/FieldValues$Functor;>(TT;)TT;",
                 new Signature("org/globsframework/core/model/FieldValues$Functor", "process",
                         "L" + FIELDS + "Field;", "Ljava/lang/Object;", false));
     }
 
-    public static byte[] generateGlob(int id, GlobType globType) {
+    public static byte[] generateGlob(String key, GlobType globType) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
         MethodVisitor methodVisitor;
         AnnotationVisitor annotationVisitor0;
 
-        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, GenerateSetNullVisitor.getGlobName(id), null,
+        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, GenerateSetNullVisitor.getGlobName(key), null,
                 "org/globsframework/model/generator/primitive/AbstractGeneratedGlob" + (globType.getFieldCount() <= 32 ? "32" : "64"), null);
 
         Field[] fields = globType.getFields();
@@ -265,7 +278,7 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
         }
-        generateUnrolledVisitors(classWriter, id, fields, globType.getFieldCount() <= 32, visitor);
+        generateUnrolledVisitors(classWriter, key, fields, globType.getFieldCount() <= 32, visitor);
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doSet",
                     "(Lorg/globsframework/core/metamodel/fields/Field;Ljava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);
@@ -277,7 +290,7 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitVarInsn(ISTORE, 3);
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "setSetAt", "(I)V", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setSetAt", "(I)V", false);
                 methodVisitor.visitVarInsn(ALOAD, 2);
 
                 Label label0 = new Label();
@@ -285,14 +298,14 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitVarInsn(ILOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "forceNull", "(Lorg/globsframework/core/metamodel/fields/Field;I)V", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "forceNull", "(Lorg/globsframework/core/metamodel/fields/Field;I)V", false);
                 methodVisitor.visitJumpInsn(GOTO, labelReturn);
 
                 methodVisitor.visitLabel(label0);
                 methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "setNotNull", "(I)V", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setNotNull", "(I)V", false);
                 methodVisitor.visitVarInsn(ILOAD, 3);
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
@@ -300,7 +313,7 @@ public class AsmGlobPrimitiveGenerator {
                 Label defaultLabel = new Label();
                 methodVisitor.visitTableSwitchInsn(0, fields.length - 1, defaultLabel, labels);
 
-                SetFieldVisitor setFieldVisitor = new SetFieldVisitor(methodVisitor, id, visitor);
+                SetFieldVisitor setFieldVisitor = new SetFieldVisitor(methodVisitor, key, visitor);
                 for (int i = 0; i < fields.length; i++) {
                     Field field = fields[i];
                     methodVisitor.visitLabel(labels[i]);
@@ -316,7 +329,7 @@ public class AsmGlobPrimitiveGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id),
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key),
                     "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
 
             if (fields.length != 0) {
@@ -340,7 +353,7 @@ public class AsmGlobPrimitiveGenerator {
             if (fields.length != 0) {
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 2);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "setNull", "(I)V", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setNull", "(I)V", false);
                 methodVisitor.visitVarInsn(ILOAD, 2);
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
@@ -353,7 +366,7 @@ public class AsmGlobPrimitiveGenerator {
                     methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
-                    field.safeAccept(new GenerateSetNullVisitor(methodVisitor, id));
+                    field.safeAccept(new GenerateSetNullVisitor(methodVisitor, key));
                     methodVisitor.visitJumpInsn(GOTO, returnLabel);
                 }
                 methodVisitor.visitLabel(defaultLabel);
@@ -361,7 +374,7 @@ public class AsmGlobPrimitiveGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
 
 
             if (fields.length != 0) {
@@ -375,7 +388,7 @@ public class AsmGlobPrimitiveGenerator {
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "getType", "()Lorg/globsframework/core/metamodel/GlobType;", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
+            methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(key), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
             methodVisitor.visitInsn(ARETURN);
             methodVisitor.visitMaxs(1, 1);
             methodVisitor.visitEnd();
@@ -391,12 +404,12 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitVarInsn(ISTORE, 2);
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 2);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "isNull", "(I)Z", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "isNull", "(I)Z", false);
                 Label label0 = new Label();
                 methodVisitor.visitJumpInsn(IFNE, label0);
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 methodVisitor.visitVarInsn(ILOAD, 2);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "isSetAt", "(I)Z", false);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "isSetAt", "(I)Z", false);
                 Label label1 = new Label();
                 methodVisitor.visitJumpInsn(IFNE, label1);
                 methodVisitor.visitLabel(label0);
@@ -418,7 +431,7 @@ public class AsmGlobPrimitiveGenerator {
                     methodVisitor.visitLabel(labels[i]);
                     methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                     methodVisitor.visitVarInsn(ALOAD, 0);
-                    field.safeAccept(new GenerateGetVisitor(methodVisitor, id));
+                    field.safeAccept(new GenerateGetVisitor(methodVisitor, key));
                     methodVisitor.visitJumpInsn(GOTO, returnLabel);
                 }
 
@@ -427,7 +440,7 @@ public class AsmGlobPrimitiveGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(id), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
             methodVisitor.visitInsn(ACONST_NULL);
             if (fields.length != 0) {
                 methodVisitor.visitLabel(returnLabel);
@@ -443,13 +456,13 @@ public class AsmGlobPrimitiveGenerator {
         return classWriter.toByteArray();
     }
 
-    public static byte[] generateFactory(GlobType globType, int id) {
+    public static byte[] generateFactory(GlobType globType, String key) {
         ClassWriter classWriter = new ClassWriter(0);
         FieldVisitor fieldVisitor;
         MethodVisitor methodVisitor;
         AnnotationVisitor annotationVisitor0;
 
-        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, getGlobFactoryName(id),
+        classWriter.visit(V17, ACC_PUBLIC | ACC_SUPER, getGlobFactoryName(key),
                 null, "org/globsframework/model/generator/AbstractGeneratedGlobFactory", null);
 
         {
@@ -460,19 +473,19 @@ public class AsmGlobPrimitiveGenerator {
 
         // the per-field constants did not exist on this flavour : the three accept() need them
         AsmFactoryGenerator.generateFieldConstants(classWriter, globType.getFields());
-        AsmFactoryGenerator.generateAccepts(classWriter, getGlobFactoryName(id), globType.getFields());
+        AsmFactoryGenerator.generateAccepts(classWriter, getGlobFactoryName(key), globType.getFields());
 
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
             methodVisitor.visitCode();
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
-            methodVisitor.visitLdcInsn(id);
+            methodVisitor.visitFieldInsn(GETSTATIC, getGlobFactoryName(key), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
+            methodVisitor.visitLdcInsn(key);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
-                    "getAccessors", "(I)Lorg/globsframework/model/generator/AccessorProvider;", false);
-            methodVisitor.visitLdcInsn(id);
+                    "getAccessors", "(Ljava/lang/String;)Lorg/globsframework/model/generator/AccessorProvider;", false);
+            methodVisitor.visitLdcInsn(key);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
-                    "getCallerGenerator", "(I)Lorg/globsframework/core/model/generate/read/GenerateCaller;", false);
+                    "getCallerGenerator", "(Ljava/lang/String;)Lorg/globsframework/core/model/generate/read/GenerateCaller;", false);
             methodVisitor.visitMethodInsn(INVOKESPECIAL, "org/globsframework/model/generator/AbstractGeneratedGlobFactory",
                     "<init>", "(Lorg/globsframework/core/metamodel/GlobType;Lorg/globsframework/model/generator/AccessorProvider;Lorg/globsframework/core/model/generate/read/GenerateCaller;)V", false);
             methodVisitor.visitInsn(RETURN);
@@ -484,9 +497,9 @@ public class AsmGlobPrimitiveGenerator {
             // inherited DefaultGlobFactory.create(Object) silently wins and no generated Glob is ever built.
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "create", "(Ljava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitTypeInsn(NEW, GenerateSetNullVisitor.getGlobName(id));
+            methodVisitor.visitTypeInsn(NEW, GenerateSetNullVisitor.getGlobName(key));
             methodVisitor.visitInsn(DUP);
-            methodVisitor.visitMethodInsn(INVOKESPECIAL, GenerateSetNullVisitor.getGlobName(id), "<init>", "()V", false);
+            methodVisitor.visitMethodInsn(INVOKESPECIAL, GenerateSetNullVisitor.getGlobName(key), "<init>", "()V", false);
             methodVisitor.visitInsn(ARETURN);
             methodVisitor.visitMaxs(2, 2);
             methodVisitor.visitEnd();
@@ -494,12 +507,12 @@ public class AsmGlobPrimitiveGenerator {
         {
             methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
             methodVisitor.visitCode();
-            methodVisitor.visitLdcInsn(id);
+            methodVisitor.visitLdcInsn(key);
             methodVisitor.visitMethodInsn(INVOKESTATIC, "org/globsframework/model/generator/primitive/AsmGlobPrimitiveGenerator",
-                    "getType", "(I)Lorg/globsframework/core/metamodel/GlobType;", false);
-            methodVisitor.visitFieldInsn(PUTSTATIC, getGlobFactoryName(id), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
+                    "getType", "(Ljava/lang/String;)Lorg/globsframework/core/metamodel/GlobType;", false);
+            methodVisitor.visitFieldInsn(PUTSTATIC, getGlobFactoryName(key), "TYPE", "Lorg/globsframework/core/metamodel/GlobType;");
 
-            AsmFactoryGenerator.generateFieldConstantsInit(methodVisitor, getGlobFactoryName(id), globType.getFields());
+            AsmFactoryGenerator.generateFieldConstantsInit(methodVisitor, getGlobFactoryName(key), globType.getFields());
 
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(2, 0);
@@ -791,117 +804,117 @@ public class AsmGlobPrimitiveGenerator {
 
     private static class SetFieldVisitor extends org.globsframework.core.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
         private final MethodVisitor methodVisitor;
-        private final int id;
+        private final String key;
         private final FieldVisitorToVisitName visitor;
 
-        public SetFieldVisitor(MethodVisitor methodVisitor, int id, FieldVisitorToVisitName visitor) {
+        public SetFieldVisitor(MethodVisitor methodVisitor, String key, FieldVisitorToVisitName visitor) {
             this.methodVisitor = methodVisitor;
-            this.id = id;
+            this.key = key;
             this.visitor = visitor;
         }
 
         public void visitInteger(IntegerField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Integer");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false);
-            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "I");
+            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "I");
         }
 
         public void visitLong(LongField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Long");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false);
-            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "J");
+            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "J");
         }
 
         public void visitDouble(DoubleField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Double");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Double", "doubleValue", "()D", false);
-            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "D");
+            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "D");
         }
 
         public void visitBoolean(BooleanField field) {
             methodVisitor.visitTypeInsn(CHECKCAST, "java/lang/Boolean");
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false);
-            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "Z");
+            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "Z");
         }
 
         public void notManaged(Field field) {
             methodVisitor.visitTypeInsn(CHECKCAST, field.safeAccept(visitor.withSimpleUserType()).name);
-            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), field.safeAccept(visitor.withUserType()).name);
+            methodVisitor.visitFieldInsn(PUTFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), field.safeAccept(visitor.withUserType()).name);
         }
     }
 
     private static class GenerateGetVisitor extends org.globsframework.core.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
         private final MethodVisitor methodVisitor;
-        private final int id;
+        private final String key;
 
-        public GenerateGetVisitor(MethodVisitor methodVisitor, int id) {
+        public GenerateGetVisitor(MethodVisitor methodVisitor, String key) {
             this.methodVisitor = methodVisitor;
-            this.id = id;
+            this.key = key;
         }
 
         public void visitInteger(IntegerField field) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "I");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "I");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false);
         }
 
         public void visitDouble(DoubleField field) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "D");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "D");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false);
         }
 
         public void visitLong(LongField field) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "J");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "J");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false);
         }
 
         public void visitBoolean(BooleanField field) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id), getFieldName(field), "Z");
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key), getFieldName(field), "Z");
             methodVisitor.visitMethodInsn(INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;", false);
         }
 
         public void notManaged(Field field) {
-            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(id),
+            methodVisitor.visitFieldInsn(GETFIELD, GenerateSetNullVisitor.getGlobName(key),
                     getFieldName(field), field.safeAccept(new FieldVisitorToVisitName().withUserType()).name);
         }
     }
 
     private static class GenerateSetNullVisitor extends org.globsframework.core.metamodel.fields.FieldVisitor.AbstractFieldVisitor {
         private final MethodVisitor methodVisitor;
-        private final int id;
+        private final String key;
 
-        public GenerateSetNullVisitor(MethodVisitor methodVisitor, int id) {
+        public GenerateSetNullVisitor(MethodVisitor methodVisitor, String key) {
             this.methodVisitor = methodVisitor;
-            this.id = id;
+            this.key = key;
         }
 
         public void visitInteger(IntegerField field) {
             methodVisitor.visitInsn(ICONST_0);
-            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(id), getFieldName(field), "I");
+            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(key), getFieldName(field), "I");
         }
 
         public void visitDouble(DoubleField field) {
             methodVisitor.visitInsn(DCONST_0);
-            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(id), getFieldName(field), "D");
+            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(key), getFieldName(field), "D");
         }
 
         public void visitLong(LongField field) {
             methodVisitor.visitInsn(LCONST_0);
-            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(id), getFieldName(field), "J");
+            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(key), getFieldName(field), "J");
         }
 
         public void visitBoolean(BooleanField field) {
             methodVisitor.visitInsn(ICONST_0);
-            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(id), getFieldName(field), "Z");
+            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(key), getFieldName(field), "Z");
         }
 
         public void notManaged(Field field) {
             methodVisitor.visitInsn(ACONST_NULL);
-            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(id),
+            methodVisitor.visitFieldInsn(PUTFIELD, getGlobName(key),
                     getFieldName(field), field.safeAccept(new FieldVisitorToVisitName().withUserType()).name);
         }
 
-        private static String getGlobName(int id) {
-            return "org/globsframework/model/generated/primitive/GeneratedGlob_" + id;
+        private static String getGlobName(String key) {
+            return PACKAGE + "Glob_" + key;
         }
     }
 }
