@@ -6,7 +6,7 @@
     <packaging>jar</packaging>
     <artifactId>globs-generate</artifactId>
     <name>Generic Lightweight ObjectS Asm generator</name>
-    <version>5.4.0</version>
+    <version>5.5-SNAPSHOT</version>
 
     <developers>
         <developer>
@@ -37,7 +37,7 @@
         <connection>scm:git:git@github.com:globsframework/globs-generate</connection>
         <developerConnection>scm:git:git@github.com:globsframework/globs-generate</developerConnection>
         <url>https://github.com/globsframework/globs-generate</url>
-        <tag>5.4.0</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <profiles>
