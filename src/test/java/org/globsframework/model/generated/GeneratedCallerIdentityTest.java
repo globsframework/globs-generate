@@ -154,6 +154,19 @@ public class GeneratedCallerIdentityTest {
                 name(AsmCallerGenerator.forDefaultGlob(four).create("shape", recorder())),
                 name(AsmCallerGenerator.forDefaultGlob(declare("Shaped", 5)).create("shape", recorder())),
                 "same purpose, same type name, one field more");
+
+        // an order is part of the shape : the same fields walked the other way is another class, and the
+        // suffix that keeps duplicates apart must not be what tells these two apart
+        Field[] fields = four.getFields();
+        String forward = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(), fields));
+        String backward = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(),
+                new Field[]{fields[3], fields[2], fields[1], fields[0]}));
+        String subset = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(),
+                new Field[]{fields[0]}));
+        Assertions.assertNotEquals(forward, backward, "same fields, reversed");
+        Assertions.assertNotEquals(forward, subset, "fewer fields");
+        Assertions.assertFalse(backward.startsWith(forward), forward + " vs " + backward);
+        Assertions.assertFalse(subset.startsWith(forward), forward + " vs " + subset);
     }
 
     /**

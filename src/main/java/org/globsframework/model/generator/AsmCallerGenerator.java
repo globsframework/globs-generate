@@ -81,8 +81,9 @@ public class AsmCallerGenerator {
                                               boolean primitive) {
         Access access = primitive ? Access.PRIMITIVE : Access.OBJECT;
         return new FromGlobCallerFactory() {
-            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions) {
-                return generate(globLoader, globInternalName, type, access, name, functions);
+            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions,
+                                                          Field[] order) {
+                return generate(globLoader, globInternalName, type, access, name, functions, order);
             }
         };
     }
@@ -114,8 +115,9 @@ public class AsmCallerGenerator {
         // parent -- but it is defined in the same loader as everything else this module generates
         GeneratedClassLoader loader = GeneratedClassLoader.get();
         return new FromGlobCallerFactory() {
-            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions) {
-                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, functions);
+            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions,
+                                                          Field[] order) {
+                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, functions, order);
             }
         };
     }
@@ -123,23 +125,27 @@ public class AsmCallerGenerator {
     @SuppressWarnings("unchecked")
     private static <C1, C2> FromGlobCaller<C1, C2> generate(GeneratedClassLoader loader, String globInternalName,
                                                                  GlobType type, Access access, String name,
-                                                                 FromGlobCallerFactory.Functions<C1, C2> provider) {
+                                                                 FromGlobCallerFactory.Functions<C1, C2> provider,
+                                                                 Field[] order) {
         CallerName.check(name);
-        Field[] fields = type.getFields();
+        // the fields to call and the order to call them in, refused here the same way the loop refuses them
+        Field[] fields = FromGlobCallerFactory.fieldsToCall(type, order);
+        // in call order, not indexed by the field : the caller may walk a subset, and <clinit> reads them
+        // back the same way
         FromGlobFunction[] functions = new FromGlobFunction[fields.length];
-        for (Field field : fields) {
-            FromGlobFunction<?, C1, C2> function = provider.forField(field);
+        for (int i = 0; i < fields.length; i++) {
+            FromGlobFunction<?, C1, C2> function = provider.forField(fields[i]);
             if (function == null) {
-                throw new IllegalArgumentException("No FromGlobFunction for " + field.getName()
+                throw new IllegalArgumentException("No FromGlobFunction for " + fields[i].getName()
                                                    + " of " + type.getName());
             }
-            functions[field.getIndex()] = function;
+            functions[i] = function;
         }
 
-        String callerName = getCallerName(globInternalName, access, type, name);
+        String callerName = getCallerName(globInternalName, access, type, name, fields);
         // the same loader as the Glob it reads : it sees that class without a child loader, which is what
         // the caller used to need one for
-        loader.emit(callerName, () -> generateCaller(callerName, globInternalName, type, access));
+        loader.emit(callerName, () -> generateCaller(callerName, globInternalName, type, access, fields));
 
         PENDING.put(callerName, functions);
         try {
@@ -176,17 +182,22 @@ public class AsmCallerGenerator {
      * themselves are named this way, a caller over a generated Glob inherits their per-run numbering, while
      * a caller over core's DefaultGlob is already the same in every run.
      */
-    static String getCallerName(String globInternalName, Access access, GlobType type, String name) {
+    static String getCallerName(String globInternalName, Access access, GlobType type, String name,
+                                Field[] fields) {
         String simple = globInternalName.substring(globInternalName.lastIndexOf('/') + 1);
         return GEN_PACKAGE + GeneratedName.unique("Caller",
                 new String[]{name, GeneratedName.simpleName(type.getName())},
-                name, type.getName(), simple, access.name(), layout(type));
+                name, type.getName(), simple, access.name(), layout(fields));
     }
 
-    /** Everything of the type the emitted call is written against : the field it reads, and how. */
-    private static String layout(GlobType type) {
+    /**
+     * Everything of the type the emitted call is written against : the fields it reads, how, <em>and in
+     * which order</em> — an order is the shape of the unrolled call, so two orders are two classes and must
+     * not be one name with two sets of bytes.
+     */
+    private static String layout(Field[] fields) {
         StringBuilder builder = new StringBuilder();
-        for (Field field : type.getFields()) {
+        for (Field field : fields) {
             builder.append(field.getIndex()).append(':')
                     .append(AsmFactoryGenerator.fieldName(field)).append(':')
                     .append(field.getDataType()).append(';');
@@ -198,8 +209,9 @@ public class AsmCallerGenerator {
         return "fn_" + field.getIndex();
     }
 
-    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access) {
-        Field[] fields = type.getFields();
+    static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access,
+                                 Field[] fields) {
+        // the mask of the Glob is the type's, whatever subset of it this caller walks
         boolean is32Bit = type.getFieldCount() <= 32;
 
         ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS) {
@@ -235,11 +247,11 @@ public class AsmCallerGenerator {
             methodVisitor.visitMethodInsn(INVOKESTATIC, GENERATOR, "getFunctions",
                     "(Ljava/lang/String;)" + FUNCTIONS_DESC, false);
             methodVisitor.visitVarInsn(ASTORE, 0);
-            for (Field field : fields) {
+            for (int i = 0; i < fields.length; i++) {
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                pushInt(methodVisitor, field.getIndex());
+                pushInt(methodVisitor, i);
                 methodVisitor.visitInsn(AALOAD);
-                methodVisitor.visitFieldInsn(PUTSTATIC, callerName, functionName(field), FUNCTION_DESC);
+                methodVisitor.visitFieldInsn(PUTSTATIC, callerName, functionName(fields[i]), FUNCTION_DESC);
             }
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(0, 0);

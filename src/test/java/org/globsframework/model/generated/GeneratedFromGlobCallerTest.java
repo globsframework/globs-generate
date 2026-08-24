@@ -198,6 +198,73 @@ public class GeneratedFromGlobCallerTest {
     }
 
     /**
+     * An order is the shape of the unrolled call : the emitted class calls the fields it was given, in that
+     * order and no other. Asserted against the loop over the same order rather than against a literal — the
+     * two have to agree field by field, which is what lets a codec ignore which one it got.
+     */
+    @Test
+    public void theOrderGivenIsTheOrderTheGeneratedCallEmits() {
+        checkOrder(OBJECT, "CallerOrderObj");
+        checkOrder(PRIMITIVE, "CallerOrderPrim");
+        checkOrder(null, "CallerOrderDefaultGlob");
+    }
+
+    private void checkOrder(String service, String name) {
+        GlobType type = build(service, name, 10);
+        Field[] fields = type.getFields();
+        // the reverse of the declaration order, so no position agrees with an index
+        Field[] reversed = new Field[fields.length];
+        for (int i = 0; i < fields.length; i++) {
+            reversed[i] = fields[fields.length - 1 - i];
+        }
+        MutableGlob glob = type.instantiate();
+        glob.setValue(type.getField("s0"), "hello");
+        glob.setValue(type.getField("i1"), 12);
+        glob.setValue(type.getField("d2"), null);
+
+        List<Seen> seen = call(orderedCaller(type, reversed), glob);
+        Assertions.assertEquals(
+                Arrays.stream(reversed).map(Field::getName).collect(Collectors.toList()),
+                seen.stream().map(Seen::field).collect(Collectors.toList()),
+                name + " : the order given, not the index order");
+        Assertions.assertEquals(call(new LoopFromGlobCaller<>(type, recorder(), reversed), glob), seen, name);
+
+        // a subset : only what was asked for, and still in the order it was asked in
+        Field[] subset = {type.getField("d2"), type.getField("s0")};
+        List<Seen> ofSubset = call(orderedCaller(type, subset), glob);
+        Assertions.assertEquals(List.of("d2", "s0"),
+                ofSubset.stream().map(Seen::field).collect(Collectors.toList()), name);
+        Assertions.assertEquals(call(new LoopFromGlobCaller<>(type, recorder(), subset), glob), ofSubset, name);
+    }
+
+    /** Whichever way in this type has : its own factory when it is generated, forDefaultGlob when it is not. */
+    private FromGlobCaller<List<Seen>, String> orderedCaller(GlobType type, Field[] order) {
+        FromGlobCaller<List<Seen>, String> caller = type.getGlobFactory() instanceof CallerGlobFactory factory
+                ? factory.create("test", recorder(), order)
+                : AsmCallerGenerator.forDefaultGlob(type).create("test", recorder(), order);
+        Assertions.assertFalse(caller instanceof LoopFromGlobCaller, "this one is generated");
+        return caller;
+    }
+
+    /** Refused by the generator exactly as the loop refuses it, and before anything is emitted. */
+    @Test
+    public void anOrderThatIsNotOfThisTypeIsRefusedByTheGeneratorToo() {
+        GlobType type = build(OBJECT, "CallerOrderRefused", 10);
+        GlobType other = build(OBJECT, "CallerOrderOther", 10);
+        CallerGlobFactory factory = (CallerGlobFactory) type.getGlobFactory();
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> factory.create("test", recorder(), new Field[]{other.getField("s0")}));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> factory.create("test", recorder(),
+                        new Field[]{type.getField("s0"), type.getField("s0")}));
+        // and the same for the generator over a Glob core built, which has its own way in
+        GlobType plain = build(null, "CallerOrderPlain", 4);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AsmCallerGenerator.forDefaultGlob(plain).create("test", recorder(), new Field[]{null}));
+    }
+
+    /**
      * Installed through {@code -Dglobs.caller.fromGlob}, the service is what makes callerFor answer a generated caller
      * for a type core built itself — the point being that a codec keeps calling callerFor and nothing else.
      */

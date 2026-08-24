@@ -258,6 +258,16 @@ per-type classes, and none of the inlining damage generation does to the code ar
 rather than calling `get(int)` / `isSetAt(int)` (both final, both inlinable) is a wash at 4 and 20 fields and
 worth **+22 %** at 40 — the wider the type, the tighter the inlining budget of the one big `call`.
 
+**An order** (`create(name, functions, order)`) changes the shape of the unrolled call and nothing else: the
+`fn_i` statics, the `<clinit>` and the `call` are emitted over the fields it names, in that order, and a
+field left out gets no static and no call site. `<clinit>` reads its functions **by position** in the array
+`getFunctions` hands back, not by field index — for the default order the two are the same, which is why the
+bytes of an unordered caller did not change and `GeneratedName.FORMAT` did not have to move. The order goes
+into the digest of the class name (`layout(Field[])`), so the same purpose over the same type walked two
+ways is two classes: without that, one name would answer for two sets of bytes and a cache could not tell
+them apart. `GeneratedCallerIdentityTest` asserts that, including that the two names differ by more than the
+duplicate suffix.
+
 It is wired in through core's extension point, the same way the generators themselves are — a class name on
 the command line:
 
