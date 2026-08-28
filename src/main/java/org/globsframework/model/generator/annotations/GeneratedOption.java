@@ -3,7 +3,6 @@ package org.globsframework.model.generator.annotations;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
-import org.globsframework.core.metamodel.annotations.InitUniqueKey;
 import org.globsframework.core.metamodel.fields.BooleanField;
 import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
@@ -46,7 +45,6 @@ public class GeneratedOption {
     /** Generate one accessor class per field and direction; unset means "whatever the default says". */
     public static final BooleanField ACCESSORS;
 
-    @InitUniqueKey
     public static final Key UNIQUE_KEY;
 
     public static Glob none() {
