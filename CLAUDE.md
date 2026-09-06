@@ -54,7 +54,7 @@ flavours inside a JVM (see `AbstractAsmGeneratorTest`).
 ### Per-type choice
 
 Whichever service is installed only sets the **default**. A type carrying the `GeneratedOption` annotation
-(`generator/annotations/`, the usual `GeneratedOption` + `GeneratedOption_` pair, listed in
+(`generator/annotations/`, the `GeneratedOption` Glob annotation, listed in
 `AllGenerateAnnotations`) gets what it asks for instead — including the other flavour, or nothing at all:
 
 ```java

@@ -8,7 +8,6 @@ import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.Glob;
 import org.globsframework.core.model.Key;
 import org.globsframework.core.model.KeyBuilder;
-import org.globsframework.core.model.MutableGlob;
 
 /**
  * What globs-generate should do with the type carrying it : nothing at all, or a generated Glob of one of
@@ -72,16 +71,6 @@ public class GeneratedOption {
         return TYPE.instantiate().set(ACCESSORS, accessors);
     }
 
-    public static Glob create(GeneratedOption_ annotation) {
-        MutableGlob option = TYPE.instantiate();
-        if (!annotation.mode().isEmpty()) {
-            option.set(MODE, annotation.mode());
-        }
-        if (annotation.accessors().length != 0) {
-            option.set(ACCESSORS, annotation.accessors()[0]);
-        }
-        return option;
-    }
 
     static {
         GlobTypeBuilder typeBuilder = GlobTypeBuilderFactory.create(TYPE_NAME);
