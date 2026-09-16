@@ -9,7 +9,9 @@ import org.globsframework.core.model.caller.ToGlobFunction;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
+import org.objectweb.asm.Type;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.SortedMap;
@@ -138,7 +140,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     @SuppressWarnings("unchecked")
     public <C1, C2, C3> ToGlobCaller<C1, C2, C3> create(
             String name, SortedMap<Integer, ToGlobFunction<C1, C2, C3>> functions,
-            ToGlobFunction fallback, int endLoop) {
+            ToGlobFunction<C1, C2, C3> fallback, int endLoop) {
         CallerName.check(name);
         // sorted here rather than trusted : a lookupswitch wants its keys ascending, and the map may have
         // been built with a comparator of its own
@@ -174,6 +176,47 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
                 name, Integer.toString(all.length), Integer.toString(emitted));
         return (ToGlobCallerAll<C1, C2, C3>)
                 generate(callerName, all, () -> generateCallerAll(callerName, all.length, emitted));
+    }
+
+    /**
+     * The typed shape : a class implementing {@code tClass} whose one method calls each function through
+     * {@code dClass}'s one method, with the arguments passed straight through.
+     * <p>
+     * This is where the boxing goes away. The other {@code create} methods emit calls to
+     * {@code ToGlobFunction.call(MutableGlob, Object, Object, Object)}, so a {@code long} argument has to be
+     * boxed and a function of another shape needs an adapter in front of it; here the emitted method has the
+     * real descriptor and the call has the real descriptor, so a {@code long} is an LLOAD into the callee's
+     * own slot and the function is the object the caller already had.
+     * <p>
+     * Note what the emitted class names : {@code tClass} and {@code dClass}, which are the caller's own types
+     * and none of core's. {@link GeneratedClassLoader} delegates to this module's loader, so those two have
+     * to be visible from there — true on a classpath, and the thing to revisit first if these callers are
+     * ever built under an isolating loader.
+     */
+    @SuppressWarnings("unchecked")
+    public <T, D> T create(String name, D[] functions, Class<T> tClass, Class<D> dClass,
+                           Class<?>... argument) {
+        CallerName.check(name);
+        if (!tClass.isInterface()) {
+            throw new IllegalArgumentException(tClass.getName() + " is not an interface : there would be "
+                                               + "nothing to implement.");
+        }
+        // the same rule as the loop's, from core : the shape of a caller is not something to re-decide here
+        Method callerMethod = ToGlobCallerFactory.methodMatching(tClass, argument);
+        Method functionMethod = ToGlobCallerFactory.methodMatching(dClass, argument);
+        Object[] all = new Object[functions.length];
+        for (int i = 0; i < functions.length; i++) {
+            if (functions[i] == null) {
+                throw new IllegalArgumentException("No " + dClass.getName() + " for index " + i);
+            }
+            all[i] = functions[i];
+        }
+        String descriptor = Type.getMethodDescriptor(callerMethod);
+        String callerName = GEN_PACKAGE + GeneratedName.unique("TypedCaller",
+                new String[]{name, GeneratedName.simpleName(tClass.getName())},
+                name, tClass.getName(), dClass.getName(), callerMethod.getName(),
+                functionMethod.getName(), descriptor, Integer.toString(all.length));
+        return (T) generateTyped(callerName, all, tClass, dClass, callerMethod, functionMethod, descriptor);
     }
 
     /**
@@ -428,6 +471,104 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
 
     private static String partName(int index) {
         return "part_" + index;
+    }
+
+    // The typed shape's half of PENDING : the functions are of the caller's own type, not ToGlobFunction,
+    // so they travel as Object[] and the generated <clinit> casts each one to dClass.
+    private static final Map<String, Object[]> PENDING_TYPED = new ConcurrentHashMap<>();
+
+    /** Called from a typed caller's {@code <clinit>}, which runs while create is still on the stack. */
+    public static Object[] getTypedFunctions(String callerName) {
+        Object[] functions = PENDING_TYPED.get(callerName);
+        if (functions == null) {
+            throw new IllegalStateException("Nothing registered for generated typed caller " + callerName
+                                            + " : the generated class was initialized outside of create.");
+        }
+        return functions;
+    }
+
+    private static Object generateTyped(String callerName, Object[] functions, Class<?> tClass,
+                                        Class<?> dClass, Method callerMethod, Method functionMethod,
+                                        String descriptor) {
+        byte[] bytes = generateTypedCaller(callerName, tClass, dClass, callerMethod, functionMethod,
+                descriptor, functions.length);
+        GeneratedClassLoader loader = GeneratedClassLoader.get();
+        loader.emit(callerName, () -> bytes);
+        PENDING_TYPED.put(callerName, functions);
+        try {
+            return loader.load(callerName).getDeclaredConstructor().newInstance();
+        } catch (Throwable e) {
+            throw new RuntimeException("Can not generate " + callerName + " : " + e.getMessage(), e);
+        } finally {
+            PENDING_TYPED.remove(callerName);
+        }
+    }
+
+    /**
+     * {@code class X implements T { static final D fn_0..fn_n; public void m(args) { fn_0.d(args); ... } }}
+     * <p>
+     * The arguments are loaded with the opcode of their own type and from their own slots — a long or a
+     * double takes two — which is the whole difference with the erased shapes above.
+     */
+    static byte[] generateTypedCaller(String callerName, Class<?> tClass, Class<?> dClass,
+                                      Method callerMethod, Method functionMethod, String descriptor,
+                                      int count) {
+        String itf = Type.getInternalName(tClass);
+        String function = Type.getInternalName(dClass);
+        String functionDesc = Type.getDescriptor(dClass);
+        ClassWriter classWriter = newClassWriter(callerName, itf);
+        for (int i = 0; i < count; i++) {
+            classWriter.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, functionName(i), functionDesc,
+                    null, null).visitEnd();
+        }
+        generateInit(classWriter);
+        generateTypedClinit(classWriter, callerName, function, functionDesc, count);
+
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL,
+                callerMethod.getName(), descriptor, null, null);
+        methodVisitor.visitCode();
+        Type[] arguments = Type.getArgumentTypes(descriptor);
+        for (int i = 0; i < count; i++) {
+            methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(i), functionDesc);
+            loadArguments(methodVisitor, arguments);
+            methodVisitor.visitMethodInsn(dClass.isInterface() ? INVOKEINTERFACE : INVOKEVIRTUAL, function,
+                    functionMethod.getName(), Type.getMethodDescriptor(functionMethod), dClass.isInterface());
+        }
+        methodVisitor.visitInsn(RETURN);
+        methodVisitor.visitMaxs(0, 0);
+        methodVisitor.visitEnd();
+
+        classWriter.visitEnd();
+        return classWriter.toByteArray();
+    }
+
+    /** Slot 0 is this, then one slot per argument — two for a long or a double. */
+    private static void loadArguments(MethodVisitor methodVisitor, Type[] arguments) {
+        int slot = 1;
+        for (Type argument : arguments) {
+            methodVisitor.visitVarInsn(argument.getOpcode(ILOAD), slot);
+            slot += argument.getSize();
+        }
+    }
+
+    private static void generateTypedClinit(ClassWriter classWriter, String callerName, String function,
+                                            String functionDesc, int count) {
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
+        methodVisitor.visitCode();
+        methodVisitor.visitLdcInsn(callerName);
+        methodVisitor.visitMethodInsn(INVOKESTATIC, GENERATOR, "getTypedFunctions",
+                "(Ljava/lang/String;)[Ljava/lang/Object;", false);
+        methodVisitor.visitVarInsn(ASTORE, 0);
+        for (int i = 0; i < count; i++) {
+            methodVisitor.visitVarInsn(ALOAD, 0);
+            pushInt(methodVisitor, i);
+            methodVisitor.visitInsn(AALOAD);
+            methodVisitor.visitTypeInsn(CHECKCAST, function);
+            methodVisitor.visitFieldInsn(PUTSTATIC, callerName, functionName(i), functionDesc);
+        }
+        methodVisitor.visitInsn(RETURN);
+        methodVisitor.visitMaxs(0, 0);
+        methodVisitor.visitEnd();
     }
 
     /** Any int, unlike the read generator's : a key or an endLoop value can be negative or large. */
