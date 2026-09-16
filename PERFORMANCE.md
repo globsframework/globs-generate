@@ -193,6 +193,24 @@ retournant un `int` (~40 lignes d'ASM de plus que `AsmCallerWriteGenerator`). Ga
 revanche : donner à chaque `FieldReader` le `GlobSetAccessor` du champ au lieu de `data.set(field,
 value)` vaut **+21 % sur DEFAULT et +14 à +15 % sur les flavours générées**.
 
+### globs-off-heap : le découpage du caller déroulé (`-Dglobs.caller.toGlob.chunk`)
+
+Le module émet le `call` déroulé en plusieurs méthodes privées statiques de `n` entrées au lieu d'une seule,
+réglable par `-Dglobs.caller.toGlob.chunk=<n>` ou `AsmCallerWriteGenerator.withChunk(n)` (0 par défaut, une
+seule méthode : les octets et le nom sont alors ceux d'avant, rien ne change pour les adoptants actuels). Le
+motif : un appel déroulé pèse ~12 octets, donc au-delà de ~27 entrées la méthode dépasse `FreqInlineSize`
+(325) et C2 cesse de l'inliner **en entier**.
+
+Mesuré dans globs-shared, sur le walk de `readAll` (45 champs, `ReadAllPerf`) : **ça ne paie pas**. À 3 forks
+le morceau de 12 semblait valoir 118.9 contre 111.8 pour la méthode unique ; à 5 forks il retombe au même
+chiffre qu'elle — **114.3 ± 8.5 contre 113.9 ± 1.7**. Le gain était de la variance, et la barre d'erreur est
+le vrai résultat : le bras découpé est **cinq fois moins stable** que le bras d'une seule méthode. Le budget
+d'octets n'était donc pas ce que ce cas-là perdait — à ne pas retenter sur cette hypothèse, et à ne pas
+conclure d'un balayage à 3 forks.
+
+Le paramètre reste : il est juste, inerte par défaut, et le seuil qu'il vise est réel pour un caller déroulé
+plus large que ~27 entrées dont les fonctions sont petites — ce qui n'est pas le cas des lectures off-heap.
+
 ## 5. Points annexes déjà mesurés
 
 - **Largeur de masque `int` vs `long`** : aucune différence de vitesse (`isSet` 1279 contre

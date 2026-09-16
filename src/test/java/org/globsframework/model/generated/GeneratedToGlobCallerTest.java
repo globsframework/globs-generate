@@ -50,6 +50,7 @@ public class GeneratedToGlobCallerTest {
     @AfterEach
     public void tearDown() {
         System.clearProperty("globs.caller.toGlob");
+        System.clearProperty(AsmCallerWriteGenerator.CHUNK_PROPERTY);
         ToGlobCallerService.Builder.reset();
     }
 
@@ -193,6 +194,104 @@ public class GeneratedToGlobCallerTest {
         caller.call(type.instantiate(), trace, "c2", "c3");
 
         Assertions.assertTrue(trace.isEmpty());
+    }
+
+    @SuppressWarnings("unchecked")
+    private ToGlobFunction<List<String>, String, String>[] records(int count) {
+        ToGlobFunction<List<String>, String, String>[] functions = new ToGlobFunction[count];
+        for (int i = 0; i < count; i++) {
+            functions[i] = record("f" + i);
+        }
+        return functions;
+    }
+
+    private List<String> expected(int count) {
+        List<String> labels = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            labels.add("f" + i + "/c2/c3");
+        }
+        return labels;
+    }
+
+    /**
+     * A chunk only moves the entries into several emitted methods : same functions, same order, same result —
+     * including the last part, which is the only one the count does not fill.
+     */
+    @Test
+    public void aChunkedWriteAllCallsEveryFunctionOnceInOrder() {
+        for (int chunk : new int[]{1, 2, 4, 7, 10}) {
+            ToGlobCallerAll<List<String>, String, String> caller = AsmCallerWriteGenerator.withChunk(chunk)
+                    .create("test", records(10));
+
+            List<String> trace = new ArrayList<>();
+            caller.call(type.instantiate(), trace, "c2", "c3");
+
+            Assertions.assertEquals(expected(10), trace, "chunk " + chunk);
+        }
+    }
+
+    /** The parts are an implementation detail of the class : private, static, and there. */
+    @Test
+    public void aChunkEmitsOnePrivateStaticMethodPerPart() {
+        Class<?> chunked = AsmCallerWriteGenerator.withChunk(4).create("test", records(10)).getClass();
+
+        for (String part : new String[]{"part_0", "part_1", "part_2"}) {
+            int modifiers = Assertions.assertDoesNotThrow(
+                    () -> chunked.getDeclaredMethod(part, MutableGlob.class, Object.class, Object.class,
+                            Object.class)).getModifiers();
+            Assertions.assertTrue(Modifier.isStatic(modifiers) && Modifier.isPrivate(modifiers),
+                    part + " : " + modifiers);
+        }
+        Assertions.assertThrows(NoSuchMethodException.class,
+                () -> chunked.getDeclaredMethod("part_3", MutableGlob.class, Object.class, Object.class,
+                        Object.class));
+        Assertions.assertThrows(NoSuchMethodException.class,
+                () -> AsmCallerWriteGenerator.INSTANCE.create("test", records(10)).getClass()
+                        .getDeclaredMethod("part_0", MutableGlob.class, Object.class, Object.class,
+                                Object.class));
+    }
+
+    /** Nothing to split is not a different class : below the chunk, the bytes are those of no chunk at all. */
+    @Test
+    public void aChunkOverTheCountSplitsNothing() {
+        Class<?> asked = AsmCallerWriteGenerator.withChunk(10).create("chunkOverCount", records(4)).getClass();
+        Class<?> none = AsmCallerWriteGenerator.INSTANCE.create("chunkOverCount", records(4)).getClass();
+
+        // same name up to the suffix that keeps two creations apart, i.e. the same digest : the same bytes
+        Assertions.assertEquals(asked.getName().replaceAll("_\\d+$", ""),
+                none.getName().replaceAll("_\\d+$", ""));
+        Assertions.assertThrows(NoSuchMethodException.class,
+                () -> asked.getDeclaredMethod("part_0", MutableGlob.class, Object.class, Object.class,
+                        Object.class));
+    }
+
+    /** Two chunks are two sets of bytes, so they have to be two names. */
+    @Test
+    public void twoChunksAreTwoClasses() {
+        String four = AsmCallerWriteGenerator.withChunk(4).create("chunkNaming", records(10))
+                .getClass().getName().replaceAll("_\\d+$", "");
+        String five = AsmCallerWriteGenerator.withChunk(5).create("chunkNaming", records(10))
+                .getClass().getName().replaceAll("_\\d+$", "");
+
+        Assertions.assertNotEquals(four, five);
+    }
+
+    @Test
+    public void theChunkIsReadFromTheProperty() {
+        Assertions.assertSame(AsmCallerWriteGenerator.INSTANCE, AsmCallerWriteGenerator.fromProperty());
+
+        System.setProperty(AsmCallerWriteGenerator.CHUNK_PROPERTY, "4");
+        Assertions.assertSame(AsmCallerWriteGenerator.withChunk(4), AsmCallerWriteGenerator.fromProperty());
+        Assertions.assertSame(AsmCallerWriteGenerator.withChunk(4),
+                new AsmCallerWriteGeneratorService().factory());
+
+        System.setProperty(AsmCallerWriteGenerator.CHUNK_PROPERTY, "not a number");
+        Assertions.assertThrows(IllegalArgumentException.class, AsmCallerWriteGenerator::fromProperty);
+    }
+
+    @Test
+    public void aNegativeChunkIsRefused() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> AsmCallerWriteGenerator.withChunk(-1));
     }
 
     /**

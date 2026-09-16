@@ -52,10 +52,64 @@ import static org.objectweb.asm.Opcodes.*;
  * The emitted {@code call} is one method, so it is the usual bytecode budget that caps how many entries are
  * worth unrolling : a case is a dozen bytes plus its switch entry, which leaves room for a few thousand, well
  * past the point where the JIT stops inlining any of it.
+ * <p>
+ * <b>The chunk</b>, on the unrolled caller only. An unrolled call is ~12 bytes (a GETSTATIC, four ALOAD and an
+ * INVOKEINTERFACE), so past ~27 entries the emitted {@code call} is over {@code FreqInlineSize} (325) and C2
+ * stops inlining it <em>as a whole</em> — the one method that was supposed to be folded into its caller
+ * becomes a call. Emitting the entries in several private static parts of at most {@code chunk} each puts
+ * every method back under the threshold : {@code call} is then three invokestatic, and each part inlines on
+ * its own. It is a JIT knob and nothing else — same functions, same order, same result — so it is set per
+ * process with {@code -Dglobs.caller.toGlob.chunk=<n>} (0, the default, emits one method as before) or per
+ * generator with {@link #withChunk(int)}. The chunk is in the digest of the generated name : two chunk
+ * sizes are two different classes, as they are two different sets of bytes.
  */
 public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
-    /** Stateless : generation keys everything by the name of the class it emits, so one instance serves the whole process. */
-    public static final AsmCallerWriteGenerator INSTANCE = new AsmCallerWriteGenerator();
+    /** What sets the chunk of the whole process, read by {@link #fromProperty()}. */
+    public static final String CHUNK_PROPERTY = "globs.caller.toGlob.chunk";
+
+    /**
+     * Stateless : generation keys everything by the name of the class it emits, so one instance serves the
+     * whole process. This one emits the unrolled caller as a single method, which is what it always did.
+     */
+    public static final AsmCallerWriteGenerator INSTANCE = new AsmCallerWriteGenerator(0);
+
+    // one generator per chunk, since a generator is nothing but that number : keeps withChunk cheap enough
+    // to be called per create, so that a changed property is picked up by the next caller built.
+    private static final Map<Integer, AsmCallerWriteGenerator> BY_CHUNK = new ConcurrentHashMap<>();
+
+    /** Entries per emitted method on the unrolled caller, 0 for one method whatever the count. */
+    private final int chunk;
+
+    private AsmCallerWriteGenerator(int chunk) {
+        if (chunk < 0) {
+            throw new IllegalArgumentException("A chunk is a number of entries per emitted method, or 0 for "
+                                               + "one method : " + chunk);
+        }
+        this.chunk = chunk;
+    }
+
+    /**
+     * @param chunk at most this many entries per emitted method on the unrolled caller; 0 to emit one method.
+     *              Over ~27 a method is past {@code FreqInlineSize} and stops being inlined as a whole, so
+     *              that is the top of the useful range rather than a limit enforced here.
+     */
+    public static AsmCallerWriteGenerator withChunk(int chunk) {
+        return chunk == 0 ? INSTANCE : BY_CHUNK.computeIfAbsent(chunk, AsmCallerWriteGenerator::new);
+    }
+
+    /** What {@link AsmCallerWriteGeneratorService} answers : {@link #CHUNK_PROPERTY}, or no chunk. */
+    public static AsmCallerWriteGenerator fromProperty() {
+        String value = System.getProperty(CHUNK_PROPERTY);
+        if (value == null || value.isBlank()) {
+            return INSTANCE;
+        }
+        try {
+            return withChunk(Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("-D" + CHUNK_PROPERTY + " is a number of entries per emitted "
+                                               + "method : " + value, e);
+        }
+    }
 
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerWriteGenerator";
     private static final String CALLER_PKG = "org/globsframework/core/model/caller/";
@@ -113,10 +167,13 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         for (int i = 0; i < functions.length; i++) {
             all[i] = ToGlobCallerFactory.checked(functions[i], "index " + i);
         }
+        // the chunk that will really be emitted, not the one asked for : below it nothing is split, and the
+        // bytes -- hence the name -- are those of a caller built without a chunk at all
+        int emitted = chunk == 0 || all.length <= chunk ? 0 : chunk;
         String callerName = GEN_PACKAGE + GeneratedName.unique("CallerAll", new String[]{name},
-                name, Integer.toString(all.length));
+                name, Integer.toString(all.length), Integer.toString(emitted));
         return (ToGlobCallerAll<C1, C2, C3>)
-                generate(callerName, all, () -> generateCallerAll(callerName, all.length));
+                generate(callerName, all, () -> generateCallerAll(callerName, all.length, emitted));
     }
 
     /**
@@ -220,8 +277,14 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         return classWriter.toByteArray();
     }
 
-    /** The same functions, no input to follow : the array unrolled, one call site per element. */
-    static byte[] generateCallerAll(String callerName, int count) {
+    /**
+     * The same functions, no input to follow : the array unrolled, one call site per element.
+     * <p>
+     * In one method when {@code chunk} is 0, else in parts of at most {@code chunk} entries that {@code call}
+     * invokes in order — same functions, same order, only the method they sit in changes. The parts are
+     * {@code private static} because everything they touch is : the functions are static fields.
+     */
+    static byte[] generateCallerAll(String callerName, int count, int chunk) {
         ClassWriter classWriter = newClassWriter(callerName, CALLER_ALL);
         declareFunctions(classWriter, count, false);
         generateInit(classWriter);
@@ -230,15 +293,41 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "call", CALL_DESC,
                 null, null);
         methodVisitor.visitCode();
-        for (int i = 0; i < count; i++) {
-            emitCall(methodVisitor, callerName, functionName(i), 1);
+        if (chunk == 0) {
+            for (int i = 0; i < count; i++) {
+                emitCall(methodVisitor, callerName, functionName(i), 1);
+            }
+        } else {
+            for (int part = 0; part * chunk < count; part++) {
+                emitPartCall(methodVisitor, callerName, partName(part), 1);
+            }
         }
         methodVisitor.visitInsn(RETURN);
         methodVisitor.visitMaxs(0, 0);
         methodVisitor.visitEnd();
 
+        if (chunk != 0) {
+            for (int part = 0; part * chunk < count; part++) {
+                generatePart(classWriter, callerName, partName(part), part * chunk,
+                        Math.min(part * chunk + chunk, count));
+            }
+        }
+
         classWriter.visitEnd();
         return classWriter.toByteArray();
+    }
+
+    /** One part of a chunked unrolled caller : the entries of {@code [from, to)}, in order. */
+    private static void generatePart(ClassWriter classWriter, String callerName, String part, int from, int to) {
+        MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, part, CALL_DESC,
+                null, null);
+        methodVisitor.visitCode();
+        for (int i = from; i < to; i++) {
+            emitCall(methodVisitor, callerName, functionName(i), 0);
+        }
+        methodVisitor.visitInsn(RETURN);
+        methodVisitor.visitMaxs(0, 0);
+        methodVisitor.visitEnd();
     }
 
     private static ClassWriter newClassWriter(String callerName, String itf) {
@@ -325,8 +414,20 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         return span <= 2L * keys.length + 8;
     }
 
+    /** {@code part(data, ctx1, ctx2, ctx3)}, the Glob and the contexts starting at {@code dataSlot}. */
+    private static void emitPartCall(MethodVisitor methodVisitor, String callerName, String part, int dataSlot) {
+        for (int slot = dataSlot; slot < dataSlot + 4; slot++) {
+            methodVisitor.visitVarInsn(ALOAD, slot);
+        }
+        methodVisitor.visitMethodInsn(INVOKESTATIC, callerName, part, CALL_DESC, false);
+    }
+
     private static String functionName(int index) {
         return "fn_" + index;
+    }
+
+    private static String partName(int index) {
+        return "part_" + index;
     }
 
     /** Any int, unlike the read generator's : a key or an endLoop value can be negative or large. */

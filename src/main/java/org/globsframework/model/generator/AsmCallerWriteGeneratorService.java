@@ -11,10 +11,15 @@ import org.globsframework.core.model.caller.ToGlobCallerFactory;
  * Independent of {@code globs.builder} and of {@code globs.caller.fromGlob} : the to-Glob side never reads the layout of
  * a Glob, so this works whoever built the Glob the functions write into. One instance serves everything —
  * there is no GlobType to be "not mine" about, hence no null answer here.
+ * <p>
+ * {@code -Dglobs.caller.toGlob.chunk=<n>} sets how many entries of an unrolled caller go into one emitted
+ * method — see {@link AsmCallerWriteGenerator} for what it buys and when.
  */
 public class AsmCallerWriteGeneratorService implements ToGlobCallerService {
 
     public ToGlobCallerFactory factory() {
-        return AsmCallerWriteGenerator.INSTANCE;
+        // re-read per call rather than cached : a test that changes the chunk and resets the service gets the
+        // generator it asked for, and a generator is stateless anyway
+        return AsmCallerWriteGenerator.fromProperty();
     }
 }
