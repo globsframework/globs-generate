@@ -36,9 +36,13 @@ The module only has to be on the classpath; what it does is decided by the prope
 
 ## Generated callers — the part that pays
 
-The interfaces (`FromGlobCaller`, `FromGlobFunction`, `ToGlobCaller`, `KeySource`, ...) live in **core**, in
-`org.globsframework.core.model.caller`, so a codec is written against them without depending on this module.
-Core ships looped implementations; this module generates them.
+The interfaces (`FromGlobCaller`, `FromGlobFunction`, `ToGlobCallerFactory`, `KeySource`, ...) live in
+**core**, in `org.globsframework.core.model.caller`, so a codec is written against them without depending on
+this module. Core ships looped implementations; this module generates them.
+
+On the to-Glob side there is no pair of interfaces to implement at all : a caller is generated over **the
+two the codec owns**, matched to each other by their parameter types, so the arguments stay what the parser
+passes around — primitives included — and the emitted class *is* the codec's own interface.
 
 A codec asks for a caller once, at setup, and gets a class with one `public static final FromGlobFunction`
 per field and a `call` unrolled over them. A `static final` read is a JIT constant, so every
@@ -50,10 +54,12 @@ every function of every field of every type in the process and stays megamorphic
 FromGlobCaller<Out, Void> caller = FromGlobCallerFactory.callerFor("mycodec.write", type, functions);
 caller.call(glob, out, null);           // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
 
-// writing a Glob in (parsing)
-ToGlobCaller<In, Void, Void> reader = ToGlobCallerFactory.get()
-        .create("myformat.read." + type.getName(), functions, skipUnknown, -1);
-reader.call(parser, type.instantiate(), in, null, null);
+// writing a Glob in (parsing) -- GlobReader and FieldReader are the codec's own interfaces,
+// both taking (MutableGlob, In); In is the KeySource, so it drives its own loop
+GlobReader reader = ToGlobCallerFactory.get()
+        .create("myformat.read." + type.getName(), functions, skipUnknown, END,
+                GlobReader.class, FieldReader.class, MutableGlob.class, In.class);
+reader.read(type.instantiate(), in);
 ```
 
 `callerFor` falls back to core's loop over the same function table for a type that has no generated class —

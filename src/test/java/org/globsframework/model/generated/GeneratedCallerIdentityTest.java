@@ -10,7 +10,6 @@ import org.globsframework.core.model.caller.FromGlobCallerFactory;
 import org.globsframework.core.model.caller.KeySource;
 import org.globsframework.core.model.caller.LoopToGlobCallerFactory;
 import org.globsframework.core.model.caller.CallerGlobFactory;
-import org.globsframework.core.model.caller.ToGlobFunction;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.junit.jupiter.api.Assertions;
@@ -59,14 +58,15 @@ public class GeneratedCallerIdentityTest {
         }
         if (args.length > 0) {
             for (int i = 0; i < 5; i++) {
-                AsmCallerWriteGenerator.INSTANCE.create("decoy" + i, functions(3, 4), null, -1);
+                writeCaller(AsmCallerWriteGenerator.INSTANCE, "decoy" + i, functions(3, 4), null, -1);
                 AsmCallerGenerator.forDefaultGlob(declare("Decoy" + i, 6)).create("decoy" + i, recorder());
             }
         }
+        System.out.println(writeCaller(AsmCallerWriteGenerator.INSTANCE, "binser.read", functions(1, 2, 5),
+                null, -1).getClass().getName());
         System.out.println(AsmCallerWriteGenerator.INSTANCE
-                .create("binser.read", functions(1, 2, 5), null, -1).getClass().getName());
-        System.out.println(AsmCallerWriteGenerator.INSTANCE
-                .create("binser.readAll", new ToGlobFunction[]{write(), write(), write()})
+                .create("binser.readAll", new ToGlobShapes.Function[]{write(), write(), write()},
+                        ToGlobShapes.Caller.class, ToGlobShapes.Function.class, ToGlobShapes.ARGS)
                 .getClass().getName());
         System.out.println(AsmCallerGenerator.forDefaultGlob(declare("Identity", 20))
                 .create("binser.write", recorder()).getClass().getName());
@@ -107,9 +107,8 @@ public class GeneratedCallerIdentityTest {
     /** The purpose is what a stack trace and a profile show, so it has to survive into the name. */
     @Test
     public void theNameTheCallerGaveIsInTheClassName() {
-        Assertions.assertTrue(AsmCallerWriteGenerator.INSTANCE
-                        .create("myFormat.read", functions(1), null, -1).getClass().getName()
-                        .contains("myFormat_read"),
+        Assertions.assertTrue(writeCaller(AsmCallerWriteGenerator.INSTANCE, "myFormat.read", functions(1),
+                        null, -1).getClass().getName().contains("myFormat_read"),
                 "the purpose is what makes the name readable");
         Assertions.assertTrue(AsmCallerGenerator.forDefaultGlob(declare("Named", 4))
                         .create("myFormat.write", recorder()).getClass().getName()
@@ -140,14 +139,20 @@ public class GeneratedCallerIdentityTest {
      */
     @Test
     public void adifferentShapeUnderTheSamePurposeIsADifferentName() {
-        String keys = name(AsmCallerWriteGenerator.INSTANCE.create("shape", functions(1, 2), null, -1));
-        String otherKeys = name(AsmCallerWriteGenerator.INSTANCE.create("shape", functions(1, 3), null, -1));
-        String fallback = name(AsmCallerWriteGenerator.INSTANCE.create("shape", functions(1, 2), write(), -1));
-        String endLoop = name(AsmCallerWriteGenerator.INSTANCE.create("shape", functions(1, 2), null, -2));
+        String keys = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "shape", functions(1, 2), null, -1));
+        String otherKeys = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "shape", functions(1, 3), null, -1));
+        String fallback = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "shape", functions(1, 2), write(), -1));
+        String endLoop = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "shape", functions(1, 2), null, -2));
 
         Assertions.assertNotEquals(keys, otherKeys);
         Assertions.assertNotEquals(keys, fallback);
         Assertions.assertNotEquals(keys, endLoop);
+
+        // the interfaces the class is emitted over are in the digest too : same purpose, same keys, another
+        // pair of types is another set of bytes
+        Assertions.assertNotEquals(keys, name(AsmCallerWriteGenerator.INSTANCE.create("shape",
+                new java.util.TreeMap<Integer, ToGlobShapes.OtherFunction>(), null, -1,
+                ToGlobShapes.OtherCaller.class, ToGlobShapes.OtherFunction.class, ToGlobShapes.ARGS)));
 
         GlobType four = declare("Shaped", 4);
         Assertions.assertNotEquals(
@@ -176,8 +181,8 @@ public class GeneratedCallerIdentityTest {
      */
     @Test
     public void thesamePurposeAskedTwiceKeepsTheFirstNameAndSuffixesTheOthers() {
-        String first = name(AsmCallerWriteGenerator.INSTANCE.create("twice", functions(7), null, -1));
-        String second = name(AsmCallerWriteGenerator.INSTANCE.create("twice", functions(7), null, -1));
+        String first = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "twice", functions(7), null, -1));
+        String second = name(writeCaller(AsmCallerWriteGenerator.INSTANCE, "twice", functions(7), null, -1));
 
         Assertions.assertEquals(first + "_1", second);
     }
@@ -187,9 +192,9 @@ public class GeneratedCallerIdentityTest {
     public void aCallerWithoutANameIsRefusedByTheGeneratorAndByTheLoop() {
         for (var factory : List.of(AsmCallerWriteGenerator.INSTANCE, LoopToGlobCallerFactory.INSTANCE)) {
             Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> factory.create(null, functions(1), null, -1), factory.getClass().getName());
+                    () -> writeCaller(factory, null, functions(1), null, -1), factory.getClass().getName());
             Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> factory.create(" ", functions(1), null, -1), factory.getClass().getName());
+                    () -> writeCaller(factory, " ", functions(1), null, -1), factory.getClass().getName());
         }
         GlobType type = declare("Unnamed", 4);
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -236,17 +241,26 @@ public class GeneratedCallerIdentityTest {
         return builder.build();
     }
 
-    private static SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions(int... keys) {
-        SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions = new TreeMap<>();
+    private static SortedMap<Integer, ToGlobShapes.Function> functions(int... keys) {
+        SortedMap<Integer, ToGlobShapes.Function> functions = new TreeMap<>();
         for (int key : keys) {
             functions.put(key, write());
         }
         return functions;
     }
 
-    private static ToGlobFunction<Void, Void, Void> write() {
-        return (MutableGlob data, Void ctx1, Void ctx2, Void ctx3) -> {
+    private static ToGlobShapes.Function write() {
+        return (MutableGlob data, ToGlobShapes.Input in) -> {
         };
+    }
+
+    /** The two interfaces the emitted class is named after, which every caller here shares. */
+    private static ToGlobShapes.Caller writeCaller(org.globsframework.core.model.caller.ToGlobCallerFactory
+                                                           factory, String name,
+                                                   SortedMap<Integer, ToGlobShapes.Function> functions,
+                                                   ToGlobShapes.Function fallback, int endLoop) {
+        return factory.create(name, functions, fallback, endLoop, ToGlobShapes.Caller.class,
+                ToGlobShapes.Function.class, ToGlobShapes.ARGS);
     }
 
     private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {

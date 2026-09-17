@@ -10,7 +10,6 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.caller.FromGlobFunction;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
 import org.globsframework.core.model.caller.CallerGlobFactory;
-import org.globsframework.core.model.caller.ToGlobFunction;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.globsframework.model.generator.GeneratedClassLoader;
 import org.junit.jupiter.api.AfterEach;
@@ -52,7 +51,8 @@ public class GeneratedClassLoaderTest {
                 factory.getGetValueAccessor(field),
                 factory.getSetValueAccessor(field),
                 ((CallerGlobFactory) factory).create("loader.read", recorder()),
-                AsmCallerWriteGenerator.INSTANCE.create("loader.write", writeFunctions(), null, -1))) {
+                AsmCallerWriteGenerator.INSTANCE.create("loader.write", writeFunctions(), null, -1,
+                        ToGlobShapes.Caller.class, ToGlobShapes.Function.class, ToGlobShapes.ARGS))) {
             Assertions.assertSame(loader, generated.getClass().getClassLoader(),
                     generated.getClass().getName());
         }
@@ -120,9 +120,9 @@ public class GeneratedClassLoaderTest {
         return type;
     }
 
-    private static SortedMap<Integer, ToGlobFunction<Void, Void, Void>> writeFunctions() {
-        SortedMap<Integer, ToGlobFunction<Void, Void, Void>> functions = new TreeMap<>();
-        functions.put(1, (MutableGlob data, Void c1, Void c2, Void c3) -> {
+    private static SortedMap<Integer, ToGlobShapes.Function> writeFunctions() {
+        SortedMap<Integer, ToGlobShapes.Function> functions = new TreeMap<>();
+        functions.put(1, (MutableGlob data, ToGlobShapes.Input in) -> {
         });
         return functions;
     }

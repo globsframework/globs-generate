@@ -305,21 +305,45 @@ both sides of the 64-field limit).
 ### The other direction : writing into a MutableGlob
 
 `AsmCallerWriteGenerator` is the generating implementation of `ToGlobCallerFactory`
-(`org.globsframework.core.model.caller`, next to `ToGlobCaller`, `ToGlobCallerAll`,
-`KeySource`, `ToGlobFunction` and core's looped `LoopToGlobCallerFactory`), for the parsing side: a
-`ToGlobFunction` reads whatever comes next in the input and sets it on the Glob. Two shapes, one class
-emitted per `create` call, both holding their functions in `public static final` fields:
+(`org.globsframework.core.model.caller`, next to `KeySource`, `CallerName` and core's looped
+`LoopToGlobCallerFactory`), for the parsing side: a function reads whatever comes next in the input and sets
+it on the Glob. Two shapes, one class emitted per `create` call, both holding their functions in
+`public static final` fields.
+
+**Both are emitted over the caller's own interfaces**, and that is the whole shape of this side — there is no
+generic `ToGlobCaller`/`ToGlobFunction` pair in core any more. `tClass` is what the emitted class implements,
+`dClass` is what it calls, and the two are matched to each other by their *parameter types*
+(`ToGlobCallerFactory.methodMatching` : exactly one method taking them, returning void, whatever it is
+named — two interfaces written independently have no reason to agree on a name). So the arguments stay what
+the parser passes around, primitives included, and the emitted class *is* the parser's own interface rather
+than something it holds:
 
 ```java
-ToGlobCallerFactory factory = ToGlobCallerFactory.get();   // this, or core's loop
-SortedMap<Integer, ToGlobFunction<In, Void, Void>> functions = new TreeMap<>();  // key -> what to write
-ToGlobCaller<In, Void, Void> caller = factory.create("myformat.read." + type.getName(),
-                                                            functions, skipUnknown, -1);
-caller.call(parser, type.instantiate(), in, null, null);   // loops until parser answers -1
+interface GlobReader  { void read(MutableGlob data, In in); }        // the caller's
+interface FieldReader { void readField(MutableGlob data, In in); }   // the functions'
 
-ToGlobCallerAll<In, Void, Void> all = factory.create("myformat.readAll", functionArray);
-all.call(glob, in, null, null);                            // every function once, in array order
+ToGlobCallerFactory factory = ToGlobCallerFactory.get();   // this, or core's loop
+SortedMap<Integer, FieldReader> functions = new TreeMap<>();     // key -> what to write
+GlobReader caller = factory.create("myformat.read." + type.getName(), functions, skipUnknown, END,
+        GlobReader.class, FieldReader.class, MutableGlob.class, In.class);
+caller.read(type.instantiate(), in);                       // loops until in.nextKey() answers END
+
+GlobReader all = factory.create("myformat.readAll", functionArray,
+        GlobReader.class, FieldReader.class, MutableGlob.class, In.class);
+all.read(glob, in);                                        // every function once, in array order
 ```
+
+That is what the erased pair cost, and why it is gone: three `Object` contexts meant a box per primitive
+argument, an adapter object in front of every function whose real signature was something else, a bridge
+method to reach it and one call level more — measured in globs-off-heap at **four times** what generating the
+dispatch earns back. On the dispatching shape the key source is **one of the arguments** (exactly one of them
+has to be a `KeySource`; `ToGlobCallerFactory.keySourceIndex` refuses none and refuses two), because a
+parser's input is normally both what says what comes next and what the functions read from — it is passed
+once and used twice rather than being a parameter every call site would repeat.
+
+Note what an emitted class therefore names: `tClass` and `dClass`, the caller's own types and none of core's.
+`GeneratedClassLoader` delegates to this module's loader, so those two have to be visible from there — true
+on a classpath, and the first thing to revisit if these callers are ever built under an isolating loader.
 
 It is wired in through core's extension point, the same way everything else here is — a class name on the
 command line, and `AsmCallerWriteGeneratorService` is the two-line `ToGlobCallerService` behind it:
@@ -331,26 +355,34 @@ command line, and `AsmCallerWriteGeneratorService` is the two-line `ToGlobCaller
 Independent of the other two properties, and unlike them it answers for the whole process at once — there is
 no GlobType to be "not mine" about. Unset, `get()` keeps answering `LoopToGlobCallerFactory`, whose loop is
 the megamorphic dispatch this exists to remove; same order, same fallback, same `endLoop`, same messages, so a
-parser keeps one code path and only the speed changes.
+parser keeps one code path and only the speed changes. On this side the loop is a *reflective `Proxy`* over
+the caller's interface, though — it boxes every primitive on every call — so a parser with something better
+of its own should ask `generated()` and keep its own path when that answers null.
 
 `globs-bin-serialisation`'s reader is the first consumer, and a good model for what adopting this looks like:
-its `FieldReader` extends `ToGlobFunction`, its `CodedInputStream` *is* the `KeySource` (the tag it
-reads names the next function, `END_GLOB` is the `endLoop`), the proto field numbers are the keys and
-`UnknownFieldReader` the fallback. Worth **+17 %** on both its read benchmarks. Note it asks `generated()`
-rather than `get()`: it already dispatches through an array indexed by field number, which beats the looped
-`LoopToGlobCallerFactory` and its binary search, so the loop is not the fallback it wants.
+`GlobFieldsReader` is its `tClass` and `FieldReader` its `dClass`, its `CodedInputStream` *is* the
+`KeySource` and one of the two arguments (the tag it reads names the next function, `END_GLOB` is the
+`endLoop`), the proto field numbers are the keys and `UnknownFieldReader` the fallback. Worth **+17 %** on
+both its read benchmarks. Note it asks `generated()` rather than `get()`: it already dispatches through an
+array indexed by field number, which beats the looped `LoopToGlobCallerFactory` and its binary search, so the
+loop is not the fallback it wants. `globs-grpc` is the second, and shows how far "no adapter" goes: its
+`tClass` is `ProtoBufGlobDeserializer` and its `dClass` `ProtoBufFieldDeserializer`, which carry the *same*
+method — so the generated class is a deserializer of that type, calling each leaf's own
+`read(MutableGlob, SafeHeapReader) throws IOException` with its own descriptor and its own exception. Both
+modules used to need a one-liner per leaf wrapping `read`, and grpc an `UncheckedIOException` round trip on
+top; none of that is left.
 
-`ToGlobCaller` emits `while ((next = keySource.nextKey()) != endLoop) switch (next) { … }`, the
-`endLoop` test *before* the switch — so that value never dispatches, even when it is also a key.
-`ToGlobCallerAll` unrolls the array. Either way each entry gets its own `GETSTATIC` +
-`INVOKEINTERFACE`, which is the whole point, exactly as on the from-Glob side.
+The dispatching shape emits `while ((next = keySource.nextKey()) != endLoop) switch (next) { … }`, the
+`endLoop` test *before* the switch — so that value never dispatches, even when it is also a key. The
+unrolled one unrolls the array. Either way each entry gets its own `GETSTATIC` + invoke, which is the whole
+point, exactly as on the from-Glob side.
 
 What is different from the from-Glob side, and worth knowing before reaching for one:
 
 - **nothing reads a Glob's layout.** The functions write through `MutableGlob`, so there is no `GlobType` to
   walk, no `CHECKCAST` to a generated Glob class, and no ClassLoader to borrow from a factory — the emitted
-  code names core interfaces only, and the caller resolves everything through `GeneratedClassLoader`'s
-  parent, which is *this module's* loader.
+  code names core's `KeySource`, the caller's own two interfaces and nothing else, and resolves everything
+  through `GeneratedClassLoader`'s parent, which is *this module's* loader.
   It therefore works over any Glob, `globs.builder` set or not, and `create` takes functions rather than a
   type;
 - the keys are **arbitrary ints**, sorted by the generator rather than taken as the `SortedMap` iterates
@@ -360,12 +392,29 @@ What is different from the from-Glob side, and worth knowing before reaching for
   skipping silently — through `ToGlobCallerFactory.unknownKey(int)`, *core's* static and not one of
   ours, so that the loop and the generated switch fail identically. It is emitted as an `INVOKESTATIC` on an
   interface (`itf` true), which is only legal from class file 52 on — the emitted classes are V17;
+- a `long` or a `double` argument takes **two slots**, so the arguments are loaded with the opcode of their
+  own type from their own slot, and the dispatching shape keeps its key in the first slot *after* them
+  (`Shape.slotAfterArguments`). Getting that wrong is a `VerifyError: Bad local variable type`, which is what
+  the wide-argument tests in `GeneratedToGlobCallerTest` and `GeneratedTypedCallerTest` are there to catch;
+- the emitted method carries the caller's own `throws` clause (`exceptionsOf`). The JVM does not check it,
+  but the emitted class is the interface, so it says the same thing;
 - there is **no `CallerGlobFactory` to ask**, generation not depending on the type, so the resolution has
   two sources instead of three: `ToGlobCallerFactory.get()` asks the service, then falls back to the
   loop.
 
+**The chunk**, on the unrolled shape only. An unrolled call is ~12 bytes, so past ~27 entries the emitted
+method is over `FreqInlineSize` (325) and C2 stops inlining it *as a whole* — the one method that was
+supposed to be folded into its caller becomes a call. Emitting the entries in several `private static` parts
+of at most `chunk` each (`part_0`, `part_1`, …, taking the arguments and nothing else, since the functions
+are statics) puts every method back under the threshold. It is a JIT knob and nothing else — same functions,
+same order, same result — set per process with `-Dglobs.caller.toGlob.chunk=<n>` (0, the default, emits one
+method) or per generator with `AsmCallerWriteGenerator.withChunk(int)`. The chunk goes into the digest of the
+generated name, since two chunk sizes are two sets of bytes; a chunk *over* the entry count splits nothing
+and is byte-for-byte the caller without one, so it is deliberately digested as 0 rather than as what was
+asked for.
+
 Measured with `ToGlobCallerPerf` (JMH, one pass = one record: every entry reads its value from a
-`SerializedInput` and sets it on a `MutableGlob`, the same four `ToGlobFunction` classes on every arm),
+`SerializedInput` and sets it on a `MutableGlob`, the same four function classes on every arm),
 at 4 / 20 / 40 entries, M ops/s — the 40 column at `-f 2 -wi 5 -i 8`, where the surprise is:
 
 | pass | 4 | 20 | 40 |
@@ -380,28 +429,33 @@ at 4 / 20 / 40 entries, M ops/s — the 40 column at `-f 2 -wi 5 -i 8`, where th
 | every entry, `LoopToGlobCallerFactory` | 20.9 | 4.24 | 2.18 |
 | **every entry, generated** (unrolled) | **34.6** | **7.24** | **2.79** |
 
-Read this before assuming the to-Glob side pays like the from-Glob side does:
+Measured while the shapes were still the erased ones, i.e. with a `Void` context or two on every arm and a
+`LoopToGlobCallerFactory` that was a real loop rather than the `Proxy` it is now. What the columns compare —
+switch against loop, table against lookup — is unchanged by that; the loop rows are now a floor rather than a
+baseline. Read the rest before assuming the to-Glob side pays like the from-Glob side does:
 
 - **the win is real but small, and it shrinks with the entry count**: ×1.6 at 4 entries, ×1.13 at 20, against
   the hand loop. Where the read caller wins ×4 or more, here every turn already does real work (parse a
   value, `set` it on the Glob), so the dispatch is a much smaller share of it — and the read baseline pays
   *two* megamorphic call sites per field (accessor + function) where a parser's loop pays one;
 - **at 40 dense keys the generated switch loses to the loop** (1.62 against 1.90), reproducibly, while the
-  lookupswitch arm at the same width still wins ×1.36. The unrolled `call` is one big method: past a certain
+  lookupswitch arm at the same width still wins ×1.36. The unrolled method is one big method: past a certain
   number of cases the inlining budget is gone and what is left is an indirect jump through a 40-entry table,
   which predicts worse than the binary search of a lookupswitch over a key sequence that repeats record after
   record. So `globs.caller.toGlob` is a win for narrow records and for sparse keys, and worth *measuring* for a
   wide record with dense ones;
-- **`ToGlobCallerAll` is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no CallAt, just
+- **the unrolled shape is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no key source, just
   the unrolled calls. A format whose entries are all there and always in the same order should use it;
 - `LoopToGlobCallerFactory` is at or just under the hand loop everywhere, which is what a fallback should
   be : nothing is lost by going through `ToGlobCallerFactory.get()` on a JVM that installs nothing.
 
 `GeneratedToGlobCallerTest` pins it: both switch shapes over 200 keys each, negative keys, a reversed
-comparator, the fallback and its absence, `endLoop` shadowing a key, the empty map and the empty array, the
+comparator, the fallback and its absence, `endLoop` shadowing a key, the empty map and the empty array, wide
+arguments, the chunk (every size, the parts, a chunk over the count, two chunks being two classes), the
 class-per-`create` / `static final` invariants, the property wiring, and
 `theLoopedCallerAndTheGeneratedOneAgree` — same trace and same exception message as
-`LoopToGlobCallerFactory` over the same script.
+`LoopToGlobCallerFactory` over the same script. `GeneratedTypedCallerTest` covers the unrolled shape's
+argument types on their own (a `long` and a `double` in the same call, a shape with no primitive at all).
 
 ### The second level : declare the functions as records or lambdas
 
@@ -427,7 +481,7 @@ Measured on JDK 27-ea with four collaborator classes (`-XX:+PrintInlining` in th
 | an ordinary class, `-XX:+UnlockExperimentalVMOptions -XX:+TrustFinalNonStaticFields` | `inline (hot)` | 0.53 |
 | a table of functions (first level not constant either) | nothing propagates, flag or not | 10.90 |
 
-So: **a `FromGlobFunction` or a `ToGlobFunction` written as a named class with final fields throws
+So: **a `FromGlobFunction`, or a to-Glob function, written as a named class with final fields throws
 away half of what the generator bought**; the same code as a `record` (or a lambda) keeps it. Both modules that adopted the caller have been converted, each measured on its own
 `GeneratedGlobPerfTest.write` OBJECT, five forks per arm, A/B/A: `globs-grpc`'s `ProtoBufFieldSerializer`
 leaves, **+4 %** (224k → 233-235k), and `globs-bin-serialisation`'s `FieldWriter`s, **+6.7 %**

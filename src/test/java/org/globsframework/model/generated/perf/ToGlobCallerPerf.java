@@ -11,9 +11,7 @@ import org.globsframework.core.metamodel.fields.StringField;
 import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.caller.KeySource;
 import org.globsframework.core.model.caller.LoopToGlobCallerFactory;
-import org.globsframework.core.model.caller.ToGlobCaller;
-import org.globsframework.core.model.caller.ToGlobCallerAll;
-import org.globsframework.core.model.caller.ToGlobFunction;
+import org.globsframework.core.model.caller.ToGlobCallerFactory;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationInput;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.SerializedInput;
@@ -38,9 +36,12 @@ a MutableGlob -- exactly what a parser does, so the dispatch is measured with re
            -Dglobs.caller.toGlob gets. Same single call site, keys binary-searched.
   generatedCaller*: the same functions through AsmCallerWriteGenerator. One call site per key, each with a
            static final receiver : monomorphic, inlined. Dense keys give a tableswitch, sparse a lookupswitch.
-  *All   : the other shape, with no CallAt to follow -- the array loop against the unrolled one.
+  *All   : the other shape, with no key source to follow -- the array loop against the unrolled one.
 
-Every arm calls exactly the same four ToGlobFunction classes, over the same payload, and leaves the
+Everything is over the two interfaces below, RecordReader and FieldReader, which is how a parser writes it :
+core names KeySource and nothing else, so the arguments are the parser's own and nothing is boxed or bridged.
+
+Every arm calls exactly the same four FieldReader classes, over the same payload, and leaves the
 same Glob behind. The Glob is core's DefaultGlob : nothing here reads its layout, so -Dglobs.builder is
 orthogonal to what is measured (it only changes the cost of the set, identically on every arm).
 
@@ -54,6 +55,19 @@ Run :
 @Fork(1)
 @State(Scope.Thread)
 public class ToGlobCallerPerf {
+
+    /** The caller's interface — the arguments a parser passes around, unerased. */
+    public interface RecordReader {
+        void read(MutableGlob glob, Script script, SerializedInput in);
+    }
+
+    /** The functions', matched to it by its parameters. The script is what drives the loop. */
+    public interface FieldReader {
+        void readField(MutableGlob glob, Script script, SerializedInput in);
+    }
+
+    private static final Class<?>[] ARGS = {MutableGlob.class, Script.class, SerializedInput.class};
+
     private static final AtomicInteger UNIQUE = new AtomicInteger();
     private static final int END = -1;
     /** sparse keys : far enough apart that the switch cannot be a table, and out of the Integer cache */
@@ -69,20 +83,20 @@ public class ToGlobCallerPerf {
 
     // keys are the field indices : the parser can index an array with them
     private Script denseScript;
-    private ToGlobFunction<SerializedInput, Void, Void>[] byIndex;
-    private ToGlobCaller<SerializedInput, Void, Void> denseDefaultCaller;
-    private ToGlobCaller<SerializedInput, Void, Void> denseGeneratedCaller;
+    private FieldReader[] byIndex;
+    private RecordReader denseDefaultCaller;
+    private RecordReader denseGeneratedCaller;
 
     // keys are ids of the format : a map on one side, a lookupswitch on the other
     private Script sparseScript;
-    private Map<Integer, ToGlobFunction<SerializedInput, Void, Void>> byKey;
-    private ToGlobCaller<SerializedInput, Void, Void> sparseDefaultCaller;
-    private ToGlobCaller<SerializedInput, Void, Void> sparseGeneratedCaller;
+    private Map<Integer, FieldReader> byKey;
+    private RecordReader sparseDefaultCaller;
+    private RecordReader sparseGeneratedCaller;
 
-    // no CallAt : every function once, in order
-    private ToGlobFunction<SerializedInput, Void, Void>[] allFunctions;
-    private ToGlobCallerAll<SerializedInput, Void, Void> defaultCallerAll;
-    private ToGlobCallerAll<SerializedInput, Void, Void> generatedCallerAll;
+    // no key source : every function once, in order
+    private FieldReader[] allFunctions;
+    private RecordReader defaultCallerAll;
+    private RecordReader generatedCallerAll;
 
     @SuppressWarnings("unchecked")
     @Setup
@@ -115,16 +129,16 @@ public class ToGlobCallerPerf {
         payloadLength = output.position();
         input = new ByteBufferSerializationInput(payload, payloadLength);
 
-        allFunctions = new ToGlobFunction[fieldCount];
-        byIndex = new ToGlobFunction[fieldCount];
+        allFunctions = new FieldReader[fieldCount];
+        byIndex = new FieldReader[fieldCount];
         byKey = new HashMap<>();
-        SortedMap<Integer, ToGlobFunction<SerializedInput, Void, Void>> dense = new TreeMap<>();
-        SortedMap<Integer, ToGlobFunction<SerializedInput, Void, Void>> sparse = new TreeMap<>();
+        SortedMap<Integer, FieldReader> dense = new TreeMap<>();
+        SortedMap<Integer, FieldReader> sparse = new TreeMap<>();
         int[] denseKeys = new int[fieldCount];
         int[] sparseKeys = new int[fieldCount];
         for (Field field : type.getFields()) {
             int index = field.getIndex();
-            ToGlobFunction<SerializedInput, Void, Void> function = functionFor(field);
+            FieldReader function = functionFor(field);
             allFunctions[index] = function;
             byIndex[index] = function;
             denseKeys[index] = index;
@@ -137,15 +151,22 @@ public class ToGlobCallerPerf {
         denseScript = new Script(denseKeys);
         sparseScript = new Script(sparseKeys);
 
-        denseDefaultCaller = LoopToGlobCallerFactory.INSTANCE.create("perf", dense, null, END);
-        denseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create("perf", dense, null, END);
-        sparseDefaultCaller = LoopToGlobCallerFactory.INSTANCE.create("perf", sparse, null, END);
-        sparseGeneratedCaller = AsmCallerWriteGenerator.INSTANCE.create("perf", sparse, null, END);
-        defaultCallerAll = LoopToGlobCallerFactory.INSTANCE.create("perf", allFunctions);
-        generatedCallerAll = AsmCallerWriteGenerator.INSTANCE.create("perf", allFunctions);
+        denseDefaultCaller = dispatching(LoopToGlobCallerFactory.INSTANCE, dense);
+        denseGeneratedCaller = dispatching(AsmCallerWriteGenerator.INSTANCE, dense);
+        sparseDefaultCaller = dispatching(LoopToGlobCallerFactory.INSTANCE, sparse);
+        sparseGeneratedCaller = dispatching(AsmCallerWriteGenerator.INSTANCE, sparse);
+        defaultCallerAll = LoopToGlobCallerFactory.INSTANCE.create("perf", allFunctions,
+                RecordReader.class, FieldReader.class, ARGS);
+        generatedCallerAll = AsmCallerWriteGenerator.INSTANCE.create("perf", allFunctions,
+                RecordReader.class, FieldReader.class, ARGS);
     }
 
-    private static ToGlobFunction<SerializedInput, Void, Void> functionFor(Field field) {
+    private static RecordReader dispatching(ToGlobCallerFactory factory,
+                                            SortedMap<Integer, FieldReader> functions) {
+        return factory.create("perf", functions, null, END, RecordReader.class, FieldReader.class, ARGS);
+    }
+
+    private static FieldReader functionFor(Field field) {
         if (field instanceof StringField f) {
             return new StringFunction(f);
         } else if (field instanceof IntegerField f) {
@@ -157,8 +178,8 @@ public class ToGlobCallerPerf {
         }
     }
 
-    /** What the CallAt of a parser is : the next key of the record, then the end of it. */
-    private static final class Script implements KeySource {
+    /** What the key source of a parser is : the next key of the record, then the end of it. */
+    public static final class Script implements KeySource {
         private final int[] keys;
         private int at;
 
@@ -188,7 +209,7 @@ public class ToGlobCallerPerf {
         start(denseScript);
         int next;
         while ((next = denseScript.nextKey()) != END) {
-            byIndex[next].call(glob, input, null, null);
+            byIndex[next].readField(glob, denseScript, input);
         }
         return input.position();
     }
@@ -198,7 +219,7 @@ public class ToGlobCallerPerf {
         start(sparseScript);
         int next;
         while ((next = sparseScript.nextKey()) != END) {
-            byKey.get(next).call(glob, input, null, null);
+            byKey.get(next).readField(glob, sparseScript, input);
         }
         return input.position();
     }
@@ -208,14 +229,14 @@ public class ToGlobCallerPerf {
     @Benchmark
     public int defaultCallerDense() {
         start(denseScript);
-        denseDefaultCaller.call(denseScript, glob, input, null, null);
+        denseDefaultCaller.read(glob, denseScript, input);
         return input.position();
     }
 
     @Benchmark
     public int defaultCallerSparse() {
         start(sparseScript);
-        sparseDefaultCaller.call(sparseScript, glob, input, null, null);
+        sparseDefaultCaller.read(glob, sparseScript, input);
         return input.position();
     }
 
@@ -225,7 +246,7 @@ public class ToGlobCallerPerf {
     @Benchmark
     public int generatedCallerDense() {
         start(denseScript);
-        denseGeneratedCaller.call(denseScript, glob, input, null, null);
+        denseGeneratedCaller.read(glob, denseScript, input);
         return input.position();
     }
 
@@ -233,17 +254,17 @@ public class ToGlobCallerPerf {
     @Benchmark
     public int generatedCallerSparse() {
         start(sparseScript);
-        sparseGeneratedCaller.call(sparseScript, glob, input, null, null);
+        sparseGeneratedCaller.read(glob, sparseScript, input);
         return input.position();
     }
 
-    // ---- the other shape : no CallAt, every function once ---------------------------------------
+    // ---- the other shape : no key source, every function once -----------------------------------
 
     @Benchmark
     public int loopAll() {
         input.reset(0, payloadLength);
-        for (ToGlobFunction<SerializedInput, Void, Void> function : allFunctions) {
-            function.call(glob, input, null, null);
+        for (FieldReader function : allFunctions) {
+            function.readField(glob, denseScript, input);
         }
         return input.position();
     }
@@ -251,37 +272,37 @@ public class ToGlobCallerPerf {
     @Benchmark
     public int defaultCallerAll() {
         input.reset(0, payloadLength);
-        defaultCallerAll.call(glob, input, null, null);
+        defaultCallerAll.read(glob, denseScript, input);
         return input.position();
     }
 
     @Benchmark
     public int generatedCallerAll() {
         input.reset(0, payloadLength);
-        generatedCallerAll.call(glob, input, null, null);
+        generatedCallerAll.read(glob, denseScript, input);
         return input.position();
     }
 
-    record StringFunction(StringField field) implements ToGlobFunction<SerializedInput, Void, Void> {
-        public void call(MutableGlob glob, SerializedInput in, Void ignored, Void alsoIgnored) {
+    public record StringFunction(StringField field) implements FieldReader {
+        public void readField(MutableGlob glob, Script ignored, SerializedInput in) {
             glob.set(field, in.readUtf8String());
         }
     }
 
-    record IntFunction(IntegerField field) implements ToGlobFunction<SerializedInput, Void, Void> {
-        public void call(MutableGlob glob, SerializedInput in, Void ignored, Void alsoIgnored) {
+    public record IntFunction(IntegerField field) implements FieldReader {
+        public void readField(MutableGlob glob, Script ignored, SerializedInput in) {
             glob.set(field, in.readNotNullInt());
         }
     }
 
-    record DoubleFunction(DoubleField field) implements ToGlobFunction<SerializedInput, Void, Void> {
-        public void call(MutableGlob glob, SerializedInput in, Void ignored, Void alsoIgnored) {
+    public record DoubleFunction(DoubleField field) implements FieldReader {
+        public void readField(MutableGlob glob, Script ignored, SerializedInput in) {
             glob.set(field, in.readNotNullDouble());
         }
     }
 
-    record LongFunction(LongField field) implements ToGlobFunction<SerializedInput, Void, Void> {
-        public void call(MutableGlob glob, SerializedInput in, Void ignored, Void alsoIgnored) {
+    public record LongFunction(LongField field) implements FieldReader {
+        public void readField(MutableGlob glob, Script ignored, SerializedInput in) {
             glob.set(field, in.readNotNullLong());
         }
     }
