@@ -77,7 +77,8 @@ Activation, both independent of each other and of `globs.builder`:
 
 Measured against the hand-rolled loop a codec writes without one (`FromGlobCallerPerf`, JDK 24.0.1):
 **x3.3 to x7.4** at 4, 20 and 40 fields, on both flavours — the wider the type, the more it pays. In real
-codecs: `globs-fix` write **+31 %**, `globs-bin-serialisation` read **+17 %**.
+codecs (JDK 24.0.1): `globs-fix` write **+34 %**, `globs-bin-serialisation` read **+21 %**, `globs-grpc`
+read **+54 %** — all three on core's `DefaultGlob` or with the Globs generated, caller off → on.
 
 `AsmCallerGenerator.forDefaultGlob(type)` emits the same unrolled caller over core's `DefaultGlob32/64/128`:
 only the traversal is generated, the application's own `glob.get(F)` keeps going through core's array

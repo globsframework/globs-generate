@@ -31,10 +31,21 @@ Sans caller, dans un vrai codec, la génération de la classe Glob **ralentit** 
 
 | module | benchmark | par défaut | classe générée (object) | classe générée (primitive) |
 | --- | --- | --- | --- | --- |
-| globs-fix | `FixMessagePerf.write` | **2.84 M ops/s** | 2.72 M (−4 %) | 2.64 M (−7 %) |
-| globs-fix | `FixMessagePerf.read` | **1.46 M ops/s** | 1.37 M (−6 %) | 1.31 M (−10 %) |
-| globs-grpc | `GeneratedGlobPerfTest.write` | 185–197k ops/s | 104k (**moitié moins**) | 141k |
-| globs-bin-serialisation | 200k globs × 40 champs, write | **1.95 M globs/s** | 1.15 M globs/s | — |
+| globs-fix | `FixMessagePerf.read` | **1.32 M ops/s** | 1.28 M (−3 %) | 1.28 M (−3 %) |
+| globs-grpc | `GeneratedGlobPerfTest.read` | **231.8k ops/s** | 129.5k (−44 %) | 130.7k (−44 %) |
+| globs-grpc | `GeneratedGlobPerfTest.readAllFields` | **2.58 M ops/s** | 0.47 M (−82 %) | 0.46 M (−82 %) |
+| globs-bin-serialisation | `GeneratedGlobPerfTest.read` | **105.3k ops/s** | 81.2k (−23 %) | 75.9k (−28 %) |
+
+Les quatre lignes ci-dessus sont des mesures du 2026-09-17 (JDK 24.0.1), côté **lecture**, où la classe
+générée est seule en cause : le caller de lecture ne dépend pas de la flavour, donc l'éteindre éteint la
+même chose partout.
+
+Côté **écriture** la comparaison n'est plus faisable ainsi : sur une flavour générée le caller vient de la
+factory du type, il n'y a plus de commutateur pour l'éteindre, et une colonne « sans caller » y serait un
+caller mesuré deux fois. Les chiffres d'alors, pris quand il était désactivable, disaient la même chose en
+plus fort — `FixMessagePerf.write` 2.84 M par défaut contre 2.72 M (−4 %) et 2.64 M (−7 %),
+`globs-grpc GeneratedGlobPerfTest.write` 185–197k contre **104k**, soit moitié moins, et binser 1.95 M
+globs/s contre 1.15 M sur 200k globs de 40 champs.
 
 La raison est toujours la même : **une classe d'accesseur par champ = plus de récepteurs sur le même
 site d'appel mégamorphique**. La boucle du codec (`FieldWrite[]`, `DirectFieldReader.read`) voit
