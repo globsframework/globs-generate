@@ -91,25 +91,42 @@ tous les types et reste mégamorphique.
 
 ### 2.2 Caller d'écriture (`ToGlobCallerPerf`, M ops/s, 4 / 20 / 40 entrées)
 
+Même config que le §2.1 : JDK 24.0.1, `-f 3 -wi 5 -i 8`. Les deux tableaux sont donc comparables, ce
+qui n'était pas le cas des mesures précédentes.
+
 | passe | 4 | 20 | 40 |
 | --- | --- | --- | --- |
-| clés denses, boucle à la main sur tableau | 19.5 | 3.89 | 1.90 |
-| clés denses, `LoopToGlobCallerFactory` | 17.4 | 3.30 | 1.58 |
-| **clés denses, généré** (`tableswitch`) | **32.0** | **4.40** | **1.62** |
-| clés éparses, boucle à la main sur `HashMap` | 15.8 | 3.23 | 1.54 |
-| clés éparses, `LoopToGlobCallerFactory` | 17.4 | 3.27 | 1.49 |
-| **clés éparses, généré** (`lookupswitch`) | **31.4** | **4.27** | **2.09** |
-| toutes les entrées, boucle à la main | 21.0 | 4.23 | 2.14 |
-| toutes les entrées, `LoopToGlobCallerFactory` | 20.9 | 4.24 | 2.18 |
-| **toutes les entrées, généré** (déroulé) | **34.6** | **7.24** | **2.79** |
+| clés denses, boucle à la main sur tableau | 19.6 | 3.94 | 1.96 |
+| clés denses, le caller en boucle (un `Proxy`) | 11.7 | 2.57 | 1.29 |
+| **clés denses, généré** (`tableswitch`) | **35.6** | **5.41** | **1.83** |
+| clés éparses, boucle à la main sur `HashMap` | 16.5 | 3.29 | 1.64 |
+| clés éparses, le caller en boucle (un `Proxy`) | 11.8 | 2.55 | 1.29 |
+| **clés éparses, généré** (`lookupswitch`) | **36.0** | **5.41** | **2.24** |
+| toutes les entrées, boucle à la main | 20.8 | 4.28 | 2.09 |
+| toutes les entrées, le caller en boucle (un `Proxy`) | 13.6 | 3.03 | 1.53 |
+| **toutes les entrées, généré** (déroulé) | **42.3** | **7.36** | **2.91** |
 
-Le côté écriture paie **beaucoup moins** que le côté lecture : ×1.6 à 4 entrées, ×1.13 à 20 contre la
-boucle, parce que chaque tour fait déjà du vrai travail (parser une valeur, la poser sur le Glob) et
-que la boucle d'un parser ne paie qu'un site mégamorphique là où la lecture en paie deux (accesseur +
-fonction). **À 40 clés denses le switch généré perd** (1.62 contre 1.90) — méthode trop grosse, budget
-d'inlining épuisé, saut indirect dans une table de 40 entrées moins bien prédit que la recherche
-dichotomique d'un `lookupswitch`. `ToGlobCallerAll` (déroulé, sans switch) est le seul bras qui
-gagne partout : ×1.6 / ×1.7 / ×1.3.
+Le côté écriture paie **moins** que le côté lecture : ×1.8 à 4 entrées, ×1.4 à 20 contre la boucle à la
+main en clés denses, parce que chaque tour fait déjà du vrai travail (parser une valeur, la poser sur le
+Glob) et que la boucle d'un parser ne paie qu'un site mégamorphique là où la lecture en paie deux
+(accesseur + fonction). La forme typée a resserré l'écart : les deux bras à switch gagnent sur la mesure
+précédente (denses 32.0 → 35.6 à 4 entrées et 4.40 → 5.41 à 20, éparses 31.4 → 36.0 et 4.27 → 5.41), ce
+qui est le bridge et le `Void` en moins sur chaque appel. Seuls ces écarts-là se lisent : les chiffres
+précédents venaient d'un run à `-f 1`, donc tout ce qui est sous ~10 % entre les deux (le bras déroulé à
+20 et 40 entrées) ne dit rien.
+
+**À 40 clés denses le switch généré perd toujours** (1.83 contre 1.96, barres d'erreur disjointes) —
+méthode trop grosse, budget d'inlining épuisé, saut indirect dans une table de 40 entrées moins bien
+prédit que la recherche dichotomique d'un `lookupswitch`. L'écart s'est réduit (−7 % au lieu de −15 %)
+mais ne s'est pas inversé : la recommandation tient, `globs.caller.toGlob` se **mesure** sur un
+enregistrement large à clés denses. Le déroulé sans switch reste le seul bras qui gagne partout :
+×2.0 / ×1.7 / ×1.4.
+
+Enfin, comme au §2.1, **le caller en boucle n'est plus un point de comparaison utile** : depuis que la
+forme est celle du codec, core ne peut répondre un `tClass` que par un `Proxy` réflexif, et il décroche
+d'environ 40 % (17.4 → 11.7 en denses à 4). L'ancienne conclusion « passer par `ToGlobCallerFactory.get()`
+ne coûte rien sur une JVM qui ne génère rien » est donc caduque : un parser qui a déjà une table par
+numéro de champ — binser, grpc — doit demander `generated()` et garder sa boucle, ce qu'ils font.
 
 ### 2.3 Accesseurs générés
 

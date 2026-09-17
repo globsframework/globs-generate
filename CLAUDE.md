@@ -457,40 +457,47 @@ and is byte-for-byte the caller without one, so it is deliberately digested as 0
 asked for.
 
 Measured with `ToGlobCallerPerf` (JMH, one pass = one record: every entry reads its value from a
-`SerializedInput` and sets it on a `MutableGlob`, the same four function classes on every arm),
-at 4 / 20 / 40 entries, M ops/s — the 40 column at `-f 2 -wi 5 -i 8`, where the surprise is:
+`SerializedInput` and sets it on a `MutableGlob`, the same four function classes on every arm; JDK 24.0.1,
+`-f 3 -wi 5 -i 8` — the same config as the from-Glob table above, which the two did not share before), at
+4 / 20 / 40 entries, M ops/s:
 
 | pass | 4 | 20 | 40 |
 | --- | --- | --- | --- |
-| dense keys, hand loop over an array | 19.5 | 3.89 | 1.90 |
-| dense keys, `LoopToGlobCallerFactory` | 17.4 | 3.30 | 1.58 |
-| **dense keys, generated** (tableswitch) | **32.0** | **4.40** | **1.62** |
-| sparse keys, hand loop over a `HashMap` | 15.8 | 3.23 | 1.54 |
-| sparse keys, `LoopToGlobCallerFactory` | 17.4 | 3.27 | 1.49 |
-| **sparse keys, generated** (lookupswitch) | **31.4** | **4.27** | **2.09** |
-| every entry, hand loop over the array | 21.0 | 4.23 | 2.14 |
-| every entry, `LoopToGlobCallerFactory` | 20.9 | 4.24 | 2.18 |
-| **every entry, generated** (unrolled) | **34.6** | **7.24** | **2.79** |
+| dense keys, hand loop over an array | 19.6 | 3.94 | 1.96 |
+| dense keys, the looped fallback (a `Proxy`) | 11.7 | 2.57 | 1.29 |
+| **dense keys, generated** (tableswitch) | **35.6** | **5.41** | **1.83** |
+| sparse keys, hand loop over a `HashMap` | 16.5 | 3.29 | 1.64 |
+| sparse keys, the looped fallback (a `Proxy`) | 11.8 | 2.55 | 1.29 |
+| **sparse keys, generated** (lookupswitch) | **36.0** | **5.41** | **2.24** |
+| every entry, hand loop over the array | 20.8 | 4.28 | 2.09 |
+| every entry, the looped fallback (a `Proxy`) | 13.6 | 3.03 | 1.53 |
+| **every entry, generated** (unrolled) | **42.3** | **7.36** | **2.91** |
 
-Measured while the shapes were still the erased ones, i.e. with a `Void` context or two on every arm and a
-`LoopToGlobCallerFactory` that was a real loop rather than the `Proxy` it is now. What the columns compare —
-switch against loop, table against lookup — is unchanged by that; the loop rows are now a floor rather than a
-baseline. Read the rest before assuming the to-Glob side pays like the from-Glob side does:
+Read this before assuming the to-Glob side pays like the from-Glob side does:
 
-- **the win is real but small, and it shrinks with the entry count**: ×1.6 at 4 entries, ×1.13 at 20, against
-  the hand loop. Where the read caller wins ×4 or more, here every turn already does real work (parse a
-  value, `set` it on the Glob), so the dispatch is a much smaller share of it — and the read baseline pays
-  *two* megamorphic call sites per field (accessor + function) where a parser's loop pays one;
-- **at 40 dense keys the generated switch loses to the loop** (1.62 against 1.90), reproducibly, while the
-  lookupswitch arm at the same width still wins ×1.36. The unrolled method is one big method: past a certain
-  number of cases the inlining budget is gone and what is left is an indirect jump through a 40-entry table,
-  which predicts worse than the binary search of a lookupswitch over a key sequence that repeats record after
-  record. So `globs.caller.toGlob` is a win for narrow records and for sparse keys, and worth *measuring* for a
-  wide record with dense ones;
-- **the unrolled shape is the arm that always wins** (×1.6 / ×1.7 / ×1.3) : no switch, no key source, just
+- **the win is real but smaller, and it shrinks with the entry count**: ×1.8 at 4 entries, ×1.4 at 20,
+  against the hand loop on dense keys. Where the from-Glob caller wins ×3.5 to ×7.4, here every turn already
+  does real work (parse a value, `set` it on the Glob), so the dispatch is a much smaller share of it — and
+  the from-Glob baseline pays *two* megamorphic call sites per field (accessor + function) where a parser's
+  loop pays one;
+- **at 40 dense keys the generated switch still loses to the loop** (1.83 against 1.96, error bars
+  disjoint), while the lookupswitch arm at the same width wins ×1.37. The unrolled method is one big method:
+  past a certain number of cases the inlining budget is gone and what is left is an indirect jump through a
+  40-entry table, which predicts worse than the binary search of a lookupswitch over a key sequence that
+  repeats record after record. The typed shape narrowed that gap — −7 % where it was −15 % — without closing
+  it, so `globs.caller.toGlob` is a win for narrow records and for sparse keys, and still worth *measuring*
+  for a wide record with dense ones;
+- **the unrolled shape is the arm that always wins** (×2.0 / ×1.7 / ×1.4) : no switch, no key source, just
   the unrolled calls. A format whose entries are all there and always in the same order should use it;
-- `LoopToGlobCallerFactory` is at or just under the hand loop everywhere, which is what a fallback should
-  be : nothing is lost by going through `ToGlobCallerFactory.get()` on a JVM that installs nothing.
+- the two switch arms gained on the erased shape they replaced — dense keys 32.0 → 35.6 at 4 entries and
+  4.40 → 5.41 at 20, sparse 31.4 → 36.0 and 4.27 → 5.41 — which is the bridge method and the boxed `Void`
+  contexts gone from every call. Only those moves are worth reading: the previous numbers came from a run at
+  `-f 1`, so anything under ~10 % across the two (the unrolled arm at 20 and 40 entries) says nothing;
+- **the fallback is no longer a point of comparison.** It used to sit at or just under the hand loop
+  (17.4 / 3.30 / 1.58 on dense keys), so nothing was lost by going through `ToGlobCallerFactory.get()` on a
+  JVM that installs nothing. Now that the shape is the codec's own, core can only answer a `tClass` through a
+  reflective `Proxy` and it drops ~40 %. A parser that already has a table indexed by field number — binser,
+  grpc — asks `generated()` and keeps its own loop, which is what both do.
 
 `GeneratedToGlobCallerTest` pins it: both switch shapes over 200 keys each, negative keys, a reversed
 comparator, the fallback and its absence, `endLoop` shadowing a key, the empty map and the empty array, wide
