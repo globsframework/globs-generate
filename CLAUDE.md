@@ -195,14 +195,30 @@ unrolled over them. The point is **not** saving the loop: a `static final` read 
 call sees a single receiver and inlines, where the one call site of a hand-written loop sees every function
 of every field of every type and stays megamorphic.
 
-Measured with `FromGlobCallerPerf` (JMH, all fields set, the same four function classes on every arm), against the
-looped fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
-(18.5 → 86.8, 3.29 → 13.6, 1.35 → 6.69 M ops/s) and **×4.2 / ×4.4 / ×4.0** on the primitive one
-(18.1 → 76.0, 3.25 → 14.4, 1.32 → 5.34). A hand-rolled loop over a `GlobGetAccessor` table plus a
-function table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
-0.96 object). Measured while the shape was still the erased one, i.e. with a `Void` context on every arm and
-a fallback that was a real loop rather than the `Proxy` it is now: the generated column is unchanged by that,
-the fallback column is now a floor.
+Measured with `FromGlobCallerPerf` (JMH, all fields set, the same four function classes on every arm; JDK
+24.0.1, `-f 3 -wi 5 -i 8`), at 4 / 20 / 40 fields, M ops/s :
+
+| walk | 4 | 20 | 40 |
+| --- | --- | --- | --- |
+| hand loop over accessors + functions, object | 26.4 | 4.02 | 1.04 |
+| the looped fallback, object | 11.0 | 2.01 | 0.94 |
+| **generated, object** | **91.8** | **17.7** | **7.74** |
+| hand loop over accessors + functions, primitive | 25.5 | 3.84 | 1.37 |
+| the looped fallback, primitive | 10.7 | 1.95 | 0.99 |
+| **generated, primitive** | **85.4** | **16.6** | **6.01** |
+
+**Quote the hand-loop row, not the fallback one.** The loop over a `GlobGetAccessor` table plus a function
+table is what a downstream module writes when it does not take a caller, so it is the baseline that means
+something: **×3.5 / ×4.4 / ×7.4** object and **×3.3 / ×4.3 / ×4.4** primitive. The fallback row gives ×8 and
+more, but that is measuring the `Proxy` core answers a `tClass` with, and beating a reflective call is not
+what the generation is for — it is also why the three codecs here ask `generatedCallerFor` and keep their
+own loop rather than taking it. It used to be a real loop, at 18.9 / 3.97 / 2.00 over a DefaultGlob, i.e.
+roughly the hand loop; the shape becoming the codec's own is what cost it that.
+
+The other thing that row hides : at **40 fields the hand loop is ×2.3 slower over a generated Glob than over
+core's DefaultGlob** (1.04 against 2.43), where at 4 fields the two are level (26.4 against 25.7). That is
+the accessor-per-field effect of the section above, seen from the codec's side — one more reason the wide
+types are where a caller pays, and where `globs.builder` alone does not.
 
 Consequences of that design, all deliberate:
 
@@ -275,12 +291,12 @@ Measured with `FromGlobCallerPerf`, all callers over the same functions, at 4 / 
 
 | walk | 4 | 20 | 40 |
 | --- | --- | --- | --- |
-| loop over accessors + functions | 23.0 | 4.57 | 2.30 |
-| the looped caller | 18.9 | 3.97 | 2.00 |
-| **generated over DefaultGlob** | **76.7** | **14.3** | **6.09** |
-| generated over a generated Glob (object) | 91.1 | 15.8 | 6.77 |
+| loop over accessors + functions | 25.7 | 5.10 | 2.43 |
+| the looped caller (a `Proxy`, see above) | 11.1 | 2.54 | 1.23 |
+| **generated over DefaultGlob** | **72.2** | **16.0** | **7.02** |
+| generated over a generated Glob (object) | 91.8 | 17.7 | 7.74 |
 
-×3.3 / ×3.1 / ×2.6 against the loop, and within 11-16 % of the caller over a generated Glob — for none of the
+×2.8 / ×3.1 / ×2.9 against the loop, and within 9-21 % of the caller over a generated Glob — for none of the
 per-type classes, and none of the inlining damage generation does to the code around it. Reading the fields
 rather than calling `get(int)` / `isSetAt(int)` (both final, both inlinable) is a wash at 4 and 20 fields and
 worth **+22 %** at 40 — the wider the type, the tighter the inlining budget of the one big `call`.

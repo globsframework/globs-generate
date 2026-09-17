@@ -53,24 +53,37 @@ peut faire sauter le budget de nœuds de C2 (`COMPILE SKIPPED: out of nodes`).
 
 ### 2.1 Caller de lecture (`FromGlobCallerPerf`, M ops/s, 4 / 20 / 40 champs)
 
+JDK 24.0.1, `-f 3 -wi 5 -i 8`, tous les champs renseignés, les quatre mêmes classes de fonction sur
+tous les bras.
+
 | parcours | 4 | 20 | 40 |
 | --- | --- | --- | --- |
-| boucle à la main sur accesseurs + fonctions | 23.0 | 4.57 | 2.30 |
-| le caller en boucle (le fallback) | 18.9 | 3.97 | 2.00 |
-| **caller généré sur un `DefaultGlob`** | **76.7** | **14.3** | **6.09** |
-| caller généré sur un Glob généré (object) | 91.1 | 15.8 | 6.77 |
+| boucle à la main sur accesseurs + fonctions (`DefaultGlob`) | 25.7 | 5.10 | 2.43 |
+| idem, sur un Glob généré (object) | 26.4 | 4.02 | 1.04 |
+| le caller en boucle (le fallback, un `Proxy`) | 11.1 | 2.54 | 1.23 |
+| **caller généré sur un `DefaultGlob`** | **72.2** | **16.0** | **7.02** |
+| caller généré sur un Glob généré (object) | 91.8 | 17.7 | 7.74 |
+| caller généré sur un Glob généré (primitive) | 85.4 | 16.6 | 6.01 |
 
-Deux lectures :
+Trois lectures :
 
-- contre le fallback, le caller sur Glob généré vaut **×4.7 / ×4.1 / ×4.9** en object
-  (18.5 → 86.8, 3.29 → 13.6, 1.35 → 6.69) et **×4.2 / ×4.4 / ×4.0** en primitive
-  (18.1 → 76.0, 3.25 → 14.4, 1.32 → 5.34) ;
-- **`forDefaultGlob` prend l'essentiel du gain sans générer aucune classe Glob** : ×3.3 / ×3.1 / ×2.6
-  contre la boucle à la main, et à 11-16 % du caller sur Glob généré — sans les classes par type ni
+- **contre la boucle à la main** — le bras qui compte, puisque c'est ce qu'écrit un codec qui ne prend pas
+  de caller — le caller sur Glob généré vaut **×3.5 / ×4.4 / ×7.4** en object et **×3.3 / ×4.3 / ×4.4** en
+  primitive ;
+- **contre le fallback**, ×8 et plus, mais ce bras ne mesure plus une boucle : depuis que la forme du caller
+  est celle du codec, core ne peut répondre un `tClass` que par un `Proxy` réflexif. Battre un appel par
+  réflexion n'est pas ce que la génération sert à prouver — et c'est pourquoi binser, grpc et fix demandent
+  tous `generatedCallerFor` et gardent leur propre boucle. Avant ce changement le fallback était une vraie
+  boucle, à 18.9 / 3.97 / 2.00, soit le niveau de la boucle à la main ;
+- **`forDefaultGlob` prend l'essentiel du gain sans générer aucune classe Glob** : ×2.8 / ×3.1 / ×2.9
+  contre la boucle à la main, et à 9-21 % du caller sur Glob généré — sans les classes par type ni
   les dégâts d'inlining du §1. C'est le meilleur rapport du module.
 
-La boucle écrite à la main fait jeu égal avec le fallback (21.9 / 3.50 / 0.96 en object) : passer par
-`FromGlobCallerFactory.callerFor` ne coûte donc rien, même pour les types qui retombent sur le fallback.
+Les deux premières lignes du tableau disent le §1 vu du côté du codec : à 4 champs la boucle à la main est
+au même niveau sur un Glob généré et sur un `DefaultGlob` (26.4 contre 25.7), à 40 champs elle est **2,3 fois
+plus lente** sur le Glob généré (1.04 contre 2.43) — une classe d'accesseur par champ sur le même site
+d'appel. Générer les Globs sans donner de caller au codec est donc une perte qui croît avec la largeur du
+type.
 
 Le mécanisme n'est pas l'économie de boucle mais le `static final` : constante JIT ⇒ récepteur unique
 ⇒ inlining, là où l'unique site d'appel d'une boucle voit toutes les fonctions de tous les champs de
