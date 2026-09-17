@@ -7,8 +7,6 @@ import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.GlobFactory;
 import org.globsframework.core.model.GlobFactoryService;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.caller.FromGlobFunction;
-import org.globsframework.core.model.caller.FromGlobCallerFactory;
 import org.globsframework.core.model.caller.CallerGlobFactory;
 import org.globsframework.model.generator.AsmCallerWriteGenerator;
 import org.globsframework.model.generator.GeneratedClassLoader;
@@ -50,7 +48,7 @@ public class GeneratedClassLoaderTest {
                 factory,
                 factory.getGetValueAccessor(field),
                 factory.getSetValueAccessor(field),
-                ((CallerGlobFactory) factory).create("loader.read", recorder()),
+                readCaller(factory, "loader.read"),
                 AsmCallerWriteGenerator.INSTANCE.create("loader.write", writeFunctions(), null, -1,
                         ToGlobShapes.Caller.class, ToGlobShapes.Function.class, ToGlobShapes.ARGS))) {
             Assertions.assertSame(loader, generated.getClass().getClassLoader(),
@@ -69,7 +67,7 @@ public class GeneratedClassLoaderTest {
         glob.setValue(type.getFields()[0], "a value");
 
         List<String> seen = new java.util.ArrayList<>();
-        ((CallerGlobFactory) type.getGlobFactory()).create("loader.read", recorder()).call(glob, seen, null);
+        readCaller(type.getGlobFactory(), "loader.read").walk(glob, seen);
 
         Assertions.assertEquals(type.getFieldCount(), seen.size());
         Assertions.assertSame(glob.getClass().getClassLoader(), GeneratedClassLoader.get());
@@ -127,12 +125,8 @@ public class GeneratedClassLoaderTest {
         return functions;
     }
 
-    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
-        return new FromGlobCallerFactory.Functions<>() {
-            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
-                String name = field.getName();
-                return (isSet, isNull, value, ctx1, ctx2) -> ctx1.add(name + "=" + value);
-            }
-        };
+    private static FromGlobShapes.Walk readCaller(GlobFactory factory, String name) {
+        return ((CallerGlobFactory) factory).create(name, FromGlobShapes.recorder(), null,
+                FromGlobShapes.Walk.class, FromGlobShapes.FieldWalk.class, FromGlobShapes.ARGS);
     }
 }

@@ -5,10 +5,8 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.caller.LoopFromGlobCaller;
-import org.globsframework.core.model.caller.FromGlobFunction;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
-import org.globsframework.core.model.caller.FromGlobCaller;
+import org.globsframework.core.model.caller.LoopFromGlobCallerFactory;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,8 +35,8 @@ public class DefaultGlobCallerShapesTest {
         for (int count : new int[]{20, 45, 100, 200}) {
             GlobType type = declare("Shape" + count, count);
             MutableGlob glob = fill(type, count);
-            List<String> generated = trace(AsmCallerGenerator.forDefaultGlob(type).create("shapes", recorder()), glob);
-            List<String> looped = trace(new LoopFromGlobCaller<>(type, recorder()), glob);
+            List<String> generated = FromGlobShapes.trace(caller(AsmCallerGenerator.forDefaultGlob(type)), glob);
+            List<String> looped = FromGlobShapes.trace(caller(new LoopFromGlobCallerFactory(type)), glob);
             System.out.println(count + " " + type.instantiate().getClass().getSimpleName()
                                + " " + (generated.equals(looped) ? "OK" : "MISMATCH " + firstDiff(looped, generated)));
         }
@@ -112,20 +110,9 @@ public class DefaultGlobCallerShapesTest {
         };
     }
 
-    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
-        return new FromGlobCallerFactory.Functions<>() {
-            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
-                String name = field.getName();
-                return (isSet, isNull, value, ctx1, ctx2) ->
-                        ctx1.add(name + "|" + isSet + "|" + isNull + "|" + value);
-            }
-        };
-    }
-
-    private static List<String> trace(FromGlobCaller<List<String>, Void> caller, MutableGlob glob) {
-        List<String> seen = new ArrayList<>();
-        caller.call(glob, seen, null);
-        return seen;
+    private static FromGlobShapes.Walk caller(FromGlobCallerFactory factory) {
+        return factory.create("shapes", FromGlobShapes.recorder(), null, FromGlobShapes.Walk.class,
+                FromGlobShapes.FieldWalk.class, FromGlobShapes.ARGS);
     }
 
     private static String firstDiff(List<String> expected, List<String> actual) {

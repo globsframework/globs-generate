@@ -3,7 +3,6 @@ package org.globsframework.model.generator;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
-import org.globsframework.core.model.caller.FromGlobCaller;
 import org.globsframework.core.model.caller.CallerGlobFactory;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.model.globaccessor.set.GlobSetAccessor;
@@ -48,9 +47,9 @@ public abstract class AbstractGeneratedGlobFactory implements CallerGlobFactory 
      * Generates a caller over the generated Glob class of this type. Comes from the generator rather than
      * being built here, because only the generator holds the ClassLoader that can resolve that class.
      */
-    public <C1, C2> FromGlobCaller<C1, C2> create(String name, FromGlobCallerFactory.Functions<C1, C2> functions,
-                                                  Field[] order) {
-        return callerGenerator.create(name, functions, order);
+    public <T, D> T create(String name, FromGlobCallerFactory.Functions<D> functions, Field[] order,
+                           Class<T> tClass, Class<D> dClass, Class<?>... argument) {
+        return callerGenerator.create(name, functions, order, tClass, dClass, argument);
     }
 
     public GlobGetAccessor getGetValueAccessor(Field field) {

@@ -3,10 +3,9 @@ package org.globsframework.model.generator;
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.caller.CallerName;
-import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.CallerShape;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
-import org.globsframework.core.model.caller.LoopFromGlobCaller;
-import org.globsframework.core.model.caller.FromGlobCaller;
+import org.globsframework.core.model.caller.LoopFromGlobCallerFactory;
 import org.globsframework.core.model.impl.AbstractDefaultGlob;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
@@ -18,8 +17,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.objectweb.asm.Opcodes.*;
 
 /**
- * Generates the {@link FromGlobCaller} of one GlobType : a class holding one
- * {@code public static final FromGlobFunction} per field, and a {@code call} unrolled over them.
+ * Generates the caller of one GlobType : a class holding one {@code public static final} function per field,
+ * and one method unrolled over them.
  * <p>
  * The point is not to save the loop — it is to give the JVM one call site per field instead of one for all
  * of them. A {@code static final} read is a constant to the JIT, so each {@code INVOKEINTERFACE call} sees a
@@ -30,34 +29,34 @@ import static org.objectweb.asm.Opcodes.*;
  * purpose the caller gives ({@link CallerName}) and a digest of what it is generated over, so that the same
  * codec over the same type gets the same class name in every run — see {@link GeneratedName}.
  * <p>
+ * <b>Emitted over the codec's own interfaces.</b> {@code tClass} is what the emitted class implements and
+ * {@code dClass} is what it calls, so what the pass carries — an output stream, a context — keeps its own
+ * type all the way down, and there is no adapter between the caller and its functions. Core only fixes the
+ * head of each method : the Glob for the caller, {@code isSet, isNull, value} for the functions (see
+ * {@link FromGlobCallerFactory}), and {@link CallerShape#methodMatching} finds them by their parameters.
+ * <p>
  * Like {@link AsmAccessorGenerator} this reads the value fields and the masks of the generated Glob straight
  * out of another package (they are {@code public} for exactly that reason), and it is written with
  * COMPUTE_FRAMES : the null handling is branchy and hand-computed frames would buy nothing but VerifyErrors.
  * <p>
- * Boxing : the interface is generic, so a primitive-flavour value has to be boxed to be passed. Since the
- * call site is monomorphic and small, the box normally dies in escape analysis once the function is inlined —
- * but it is a real allocation whenever it is not.
+ * Boxing : the <em>value</em> is the one argument left as an Object, being the one whose type changes from
+ * one field to the next, so a primitive-flavour value is boxed to be passed. Since the call site is
+ * monomorphic and small, the box normally dies in escape analysis once the function is inlined — but it is a
+ * real allocation whenever it is not.
  */
 public class AsmCallerGenerator {
     private static final String GENERATOR = "org/globsframework/model/generator/AsmCallerGenerator";
-    private static final String FUNCTION = "org/globsframework/core/model/caller/FromGlobFunction";
-    private static final String FUNCTION_DESC = "L" + FUNCTION + ";";
-    private static final String FUNCTIONS_DESC = "[" + FUNCTION_DESC;
-    private static final String CALLER = "org/globsframework/core/model/caller/FromGlobCaller";
-    private static final String GLOB = "Lorg/globsframework/core/model/Glob;";
     private static final String OBJECT = "Ljava/lang/Object;";
+    private static final String OBJECTS_DESC = "[" + OBJECT;
     private static final String GEN_PACKAGE = "org/globsframework/gen/fromglob/";
-
-    // the Glob is cast once into slot 4; 5 and 6 are the per-field scratch (the null flag / the value)
-    private static final int GLOB_SLOT = 4;
-    private static final int FLAG_SLOT = 5;
-    private static final int VALUE_SLOT = 6;
 
     // What the generated caller's <clinit> reads, keyed by the name of the class that reads it -- a name
     // GeneratedName has already made unique, so two creations never race over one entry. Same protocol as
     // the PENDING map of the two generators : the entry lives only for the duration of create, so nothing
     // here keeps a function -- nor the ClassLoader of the generated class -- alive.
-    private static final Map<String, FromGlobFunction[]> PENDING = new ConcurrentHashMap<>();
+    // The functions are of the codec's own type, not of one of core's, so they travel as Object[] and the
+    // generated <clinit> casts each one to dClass.
+    private static final Map<String, Object[]> PENDING = new ConcurrentHashMap<>();
 
     /** How the emitted {@code call} gets isSet / isNull / the value out of the Glob it was cast to. */
     private enum Access {
@@ -81,9 +80,10 @@ public class AsmCallerGenerator {
                                               boolean primitive) {
         Access access = primitive ? Access.PRIMITIVE : Access.OBJECT;
         return new FromGlobCallerFactory() {
-            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions,
-                                                          Field[] order) {
-                return generate(globLoader, globInternalName, type, access, name, functions, order);
+            public <T, D> T create(String name, Functions<D> functions, Field[] order,
+                                   Class<T> tClass, Class<D> dClass, Class<?>... argument) {
+                return generate(globLoader, globInternalName, type, access, name, functions, order,
+                        tClass, dClass, argument);
             }
         };
     }
@@ -103,7 +103,8 @@ public class AsmCallerGenerator {
      * gaining one Glob class per type.
      *
      * @return null when the type's factory does not build an AbstractDefaultGlob — nothing here can read it,
-     * and a caller of {@link FromGlobCallerFactory#callerFor} should fall back to {@link LoopFromGlobCaller}.
+     * and a caller of {@link FromGlobCallerFactory#callerFor} should fall back to
+     * {@link LoopFromGlobCallerFactory}.
      */
     public static FromGlobCallerFactory forDefaultGlob(GlobType type) {
         Class<?> globClass = type.instantiate().getClass();
@@ -115,44 +116,44 @@ public class AsmCallerGenerator {
         // parent -- but it is defined in the same loader as everything else this module generates
         GeneratedClassLoader loader = GeneratedClassLoader.get();
         return new FromGlobCallerFactory() {
-            public <C1, C2> FromGlobCaller<C1, C2> create(String name, Functions<C1, C2> functions,
-                                                          Field[] order) {
-                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, functions, order);
+            public <T, D> T create(String name, Functions<D> functions, Field[] order,
+                                   Class<T> tClass, Class<D> dClass, Class<?>... argument) {
+                return generate(loader, globInternalName, type, Access.DEFAULT_GLOB, name, functions, order,
+                        tClass, dClass, argument);
             }
         };
     }
 
     @SuppressWarnings("unchecked")
-    private static <C1, C2> FromGlobCaller<C1, C2> generate(GeneratedClassLoader loader, String globInternalName,
-                                                                 GlobType type, Access access, String name,
-                                                                 FromGlobCallerFactory.Functions<C1, C2> provider,
-                                                                 Field[] order) {
+    private static <T, D> T generate(GeneratedClassLoader loader, String globInternalName, GlobType type,
+                                     Access access, String name,
+                                     FromGlobCallerFactory.Functions<D> provider, Field[] order,
+                                     Class<T> tClass, Class<D> dClass, Class<?>... argument) {
         CallerName.check(name);
+        // the two methods, from core : the shape of a caller is not something to re-decide here
+        EmittedShape shape = EmittedShape.of(tClass, dClass,
+                FromGlobCallerFactory.callerMethod(tClass, argument),
+                FromGlobCallerFactory.functionMethod(dClass, argument));
         // the fields to call and the order to call them in, refused here the same way the loop refuses them
         Field[] fields = FromGlobCallerFactory.fieldsToCall(type, order);
         // in call order, not indexed by the field : the caller may walk a subset, and <clinit> reads them
         // back the same way
-        FromGlobFunction[] functions = new FromGlobFunction[fields.length];
+        Object[] functions = new Object[fields.length];
         for (int i = 0; i < fields.length; i++) {
-            FromGlobFunction<?, C1, C2> function = provider.forField(fields[i]);
-            if (function == null) {
-                throw new IllegalArgumentException("No FromGlobFunction for " + fields[i].getName()
-                                                   + " of " + type.getName());
-            }
-            functions[i] = function;
+            functions[i] = CallerShape.checked(provider.forField(fields[i]),
+                    fields[i].getName() + " of " + type.getName());
         }
 
-        String callerName = getCallerName(globInternalName, access, type, name, fields);
+        String callerName = getCallerName(globInternalName, access, type, name, fields, shape);
         // the same loader as the Glob it reads : it sees that class without a child loader, which is what
         // the caller used to need one for
-        loader.emit(callerName, () -> generateCaller(callerName, globInternalName, type, access, fields));
+        loader.emit(callerName,
+                () -> generateCaller(callerName, globInternalName, type, access, fields, shape));
 
         PENDING.put(callerName, functions);
         try {
             // newInstance triggers the <clinit> that reads PENDING
-            return (FromGlobCaller<C1, C2>) loader.load(callerName)
-                    .getDeclaredConstructor()
-                    .newInstance();
+            return (T) loader.load(callerName).getDeclaredConstructor().newInstance();
         } catch (Throwable e) {
             throw new RuntimeException("Can not generate the caller of " + type.getName() + " : " + e.getMessage(), e);
         } finally {
@@ -161,8 +162,8 @@ public class AsmCallerGenerator {
     }
 
     /** Called from the generated caller's {@code <clinit>}, which runs while generate is still on the stack. */
-    public static FromGlobFunction[] getFunctions(String callerName) {
-        FromGlobFunction[] functions = PENDING.get(callerName);
+    public static Object[] getFunctions(String callerName) {
+        Object[] functions = PENDING.get(callerName);
         if (functions == null) {
             throw new IllegalStateException("Nothing registered for generated caller " + callerName
                                             + " : the generated class was initialized outside of create.");
@@ -183,11 +184,11 @@ public class AsmCallerGenerator {
      * a caller over core's DefaultGlob is already the same in every run.
      */
     static String getCallerName(String globInternalName, Access access, GlobType type, String name,
-                                Field[] fields) {
+                                Field[] fields, EmittedShape shape) {
         String simple = globInternalName.substring(globInternalName.lastIndexOf('/') + 1);
         return GEN_PACKAGE + GeneratedName.unique("Caller",
                 new String[]{name, GeneratedName.simpleName(type.getName())},
-                name, type.getName(), simple, access.name(), layout(fields));
+                shape.identity(name, type.getName(), simple, access.name(), layout(fields)));
     }
 
     /**
@@ -210,7 +211,7 @@ public class AsmCallerGenerator {
     }
 
     static byte[] generateCaller(String callerName, String globInternalName, GlobType type, Access access,
-                                 Field[] fields) {
+                                 Field[] fields, EmittedShape shape) {
         // the mask of the Glob is the type's, whatever subset of it this caller walks
         boolean is32Bit = type.getFieldCount() <= 32;
 
@@ -222,11 +223,11 @@ public class AsmCallerGenerator {
             }
         };
         classWriter.visit(V17, ACC_PUBLIC | ACC_FINAL | ACC_SUPER, callerName, null, "java/lang/Object",
-                new String[]{CALLER});
+                new String[]{shape.itf()});
 
         for (Field field : fields) {
-            classWriter.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, functionName(field), FUNCTION_DESC,
-                    null, null).visitEnd();
+            classWriter.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, functionName(field),
+                    shape.functionDesc(), null, null).visitEnd();
         }
 
         {
@@ -245,32 +246,39 @@ public class AsmCallerGenerator {
             // so the bytes stay a pure function of what the name digests
             methodVisitor.visitLdcInsn(callerName);
             methodVisitor.visitMethodInsn(INVOKESTATIC, GENERATOR, "getFunctions",
-                    "(Ljava/lang/String;)" + FUNCTIONS_DESC, false);
+                    "(Ljava/lang/String;)" + OBJECTS_DESC, false);
             methodVisitor.visitVarInsn(ASTORE, 0);
             for (int i = 0; i < fields.length; i++) {
                 methodVisitor.visitVarInsn(ALOAD, 0);
                 pushInt(methodVisitor, i);
                 methodVisitor.visitInsn(AALOAD);
-                methodVisitor.visitFieldInsn(PUTSTATIC, callerName, functionName(fields[i]), FUNCTION_DESC);
+                // the functions are the codec's own type, so they travel as Object[] : one CHECKCAST each
+                methodVisitor.visitTypeInsn(CHECKCAST, shape.function());
+                methodVisitor.visitFieldInsn(PUTSTATIC, callerName, functionName(fields[i]),
+                        shape.functionDesc());
             }
             methodVisitor.visitInsn(RETURN);
             methodVisitor.visitMaxs(0, 0);
             methodVisitor.visitEnd();
         }
         {
-            MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL, "call",
-                    "(" + GLOB + OBJECT + OBJECT + ")V", null, null);
+            MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL,
+                    shape.callerMethod().getName(), shape.callerDescriptor(), null, shape.exceptions());
             methodVisitor.visitCode();
+            // the Glob is argument 0 and lands in slot 1; the scratch starts after everything the pass
+            // carries, since a long or a double among those takes two slots
+            Slots slots = new Slots(shape.slotAfterArguments());
             if (fields.length != 0) {
                 methodVisitor.visitVarInsn(ALOAD, 1);
                 methodVisitor.visitTypeInsn(CHECKCAST, globInternalName);
-                methodVisitor.visitVarInsn(ASTORE, GLOB_SLOT);
+                methodVisitor.visitVarInsn(ASTORE, slots.glob());
                 for (Field field : fields) {
                     if (access == Access.DEFAULT_GLOB) {
-                        emitDefaultGlobFieldCall(methodVisitor, callerName, globInternalName, field);
+                        emitDefaultGlobFieldCall(methodVisitor, callerName, globInternalName, field, shape,
+                                slots);
                     } else {
                         emitFieldCall(methodVisitor, callerName, globInternalName, field,
-                                access == Access.PRIMITIVE, is32Bit);
+                                access == Access.PRIMITIVE, is32Bit, shape, slots);
                     }
                 }
             }
@@ -284,14 +292,29 @@ public class AsmCallerGenerator {
     }
 
     /**
-     * {@code fn_i.call(isSet, isNull, value, ctx1, ctx2)} for one field.
+     * Where the cast Glob and the two per-field scratch values live : after {@code this}, the Glob and
+     * everything the pass carries.
+     */
+    private record Slots(int glob) {
+        int flag() {
+            return glob + 1;
+        }
+
+        int value() {
+            return glob + 2;
+        }
+    }
+
+    /**
+     * {@code fn_i.d(isSet, isNull, value, argument...)} for one field.
      * <p>
      * isSet and isNull say the same thing as the Glob does : isSet is the mask bit, and isNull is what doGet
      * answers null for — the null bit or a field that was never set on the primitive flavour, the value being
      * null on the object one (unset() writes null into it, which the generated doGet already relies on).
      */
     private static void emitFieldCall(MethodVisitor methodVisitor, String callerName, String globInternalName,
-                                      Field field, boolean primitive, boolean is32Bit) {
+                                      Field field, boolean primitive, boolean is32Bit, EmittedShape shape,
+                                      Slots slots) {
         AsmAccessorGenerator.AccessorSpec spec = AsmAccessorGenerator.AccessorSpec.of(field);
         String fieldName = AsmFactoryGenerator.fieldName(field);
         String fieldDesc = primitive ? spec.nativeDesc : spec.valueDesc;
@@ -300,8 +323,8 @@ public class AsmCallerGenerator {
         if (primitive) {
             // isNull = ((isNull | ~isSet) >>> index) & 1, branchless, and needed twice : as the argument and
             // as the test guarding the boxing
-            pushMask(methodVisitor, globInternalName, "isNull", is32Bit);
-            pushMask(methodVisitor, globInternalName, "isSet", is32Bit);
+            pushMask(methodVisitor, globInternalName, "isNull", is32Bit, slots);
+            pushMask(methodVisitor, globInternalName, "isSet", is32Bit, slots);
             if (is32Bit) {
                 methodVisitor.visitInsn(ICONST_M1);
                 methodVisitor.visitInsn(IXOR);
@@ -312,25 +335,25 @@ public class AsmCallerGenerator {
                 methodVisitor.visitInsn(LOR);
             }
             extractBit(methodVisitor, index, is32Bit);
-            methodVisitor.visitVarInsn(ISTORE, FLAG_SLOT);
+            methodVisitor.visitVarInsn(ISTORE, slots.flag());
         } else {
-            methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+            methodVisitor.visitVarInsn(ALOAD, slots.glob());
             methodVisitor.visitFieldInsn(GETFIELD, globInternalName, fieldName, fieldDesc);
-            methodVisitor.visitVarInsn(ASTORE, VALUE_SLOT);
+            methodVisitor.visitVarInsn(ASTORE, slots.value());
         }
 
-        methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(field), FUNCTION_DESC);
+        methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(field), shape.functionDesc());
 
-        pushMask(methodVisitor, globInternalName, "isSet", is32Bit);
+        pushMask(methodVisitor, globInternalName, "isSet", is32Bit, slots);
         extractBit(methodVisitor, index, is32Bit);
 
         Label nullLabel = new Label();
         Label done = new Label();
         if (primitive) {
-            methodVisitor.visitVarInsn(ILOAD, FLAG_SLOT);
-            methodVisitor.visitVarInsn(ILOAD, FLAG_SLOT);
+            methodVisitor.visitVarInsn(ILOAD, slots.flag());
+            methodVisitor.visitVarInsn(ILOAD, slots.flag());
             methodVisitor.visitJumpInsn(IFNE, nullLabel);
-            methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+            methodVisitor.visitVarInsn(ALOAD, slots.glob());
             methodVisitor.visitFieldInsn(GETFIELD, globInternalName, fieldName, fieldDesc);
             if (spec.boxedOwner != null) {
                 methodVisitor.visitMethodInsn(INVOKESTATIC, spec.boxedOwner, "valueOf",
@@ -341,20 +364,19 @@ public class AsmCallerGenerator {
             methodVisitor.visitInsn(ACONST_NULL);
             methodVisitor.visitLabel(done);
         } else {
-            methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+            methodVisitor.visitVarInsn(ALOAD, slots.value());
             methodVisitor.visitJumpInsn(IFNULL, nullLabel);
             methodVisitor.visitInsn(ICONST_0);
             methodVisitor.visitJumpInsn(GOTO, done);
             methodVisitor.visitLabel(nullLabel);
             methodVisitor.visitInsn(ICONST_1);
             methodVisitor.visitLabel(done);
-            methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+            methodVisitor.visitVarInsn(ALOAD, slots.value());
         }
 
-        methodVisitor.visitVarInsn(ALOAD, 2);
-        methodVisitor.visitVarInsn(ALOAD, 3);
-        methodVisitor.visitMethodInsn(INVOKEINTERFACE, FUNCTION, "call",
-                "(ZZ" + OBJECT + OBJECT + OBJECT + ")V", true);
+        // argument 0 is the Glob, which the functions do not take : what the pass carries starts at 1
+        shape.loadArguments(methodVisitor, 1, 1);
+        shape.invokeFunction(methodVisitor);
     }
 
     /**
@@ -375,42 +397,43 @@ public class AsmCallerGenerator {
      * {@link LoopFromGlobCaller} field by field, including the unset case (not set, null, no value).
      */
     private static void emitDefaultGlobFieldCall(MethodVisitor methodVisitor, String callerName,
-                                                 String globInternalName, Field field) {
+                                                 String globInternalName, Field field, EmittedShape shape,
+                                                 Slots slots) {
         int index = field.getIndex();
 
-        methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+        methodVisitor.visitVarInsn(ALOAD, slots.glob());
         methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "values", "[" + OBJECT);
         pushInt(methodVisitor, index);
         methodVisitor.visitInsn(AALOAD);
-        methodVisitor.visitVarInsn(ASTORE, VALUE_SLOT);
+        methodVisitor.visitVarInsn(ASTORE, slots.value());
 
-        methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(field), FUNCTION_DESC);
+        methodVisitor.visitFieldInsn(GETSTATIC, callerName, functionName(field), shape.functionDesc());
 
-        emitDefaultGlobIsSet(methodVisitor, globInternalName, index);
+        emitDefaultGlobIsSet(methodVisitor, globInternalName, index, slots);
 
         Label nullLabel = new Label();
         Label done = new Label();
-        methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+        methodVisitor.visitVarInsn(ALOAD, slots.value());
         methodVisitor.visitJumpInsn(IFNULL, nullLabel);
         methodVisitor.visitInsn(ICONST_0);
         methodVisitor.visitJumpInsn(GOTO, done);
         methodVisitor.visitLabel(nullLabel);
         methodVisitor.visitInsn(ICONST_1);
         methodVisitor.visitLabel(done);
-        methodVisitor.visitVarInsn(ALOAD, VALUE_SLOT);
+        methodVisitor.visitVarInsn(ALOAD, slots.value());
 
-        methodVisitor.visitVarInsn(ALOAD, 2);
-        methodVisitor.visitVarInsn(ALOAD, 3);
-        methodVisitor.visitMethodInsn(INVOKEINTERFACE, FUNCTION, "call",
-                "(ZZ" + OBJECT + OBJECT + OBJECT + ")V", true);
+        // argument 0 is the Glob, which the functions do not take : what the pass carries starts at 1
+        shape.loadArguments(methodVisitor, 1, 1);
+        shape.invokeFunction(methodVisitor);
     }
 
     /**
      * Pushes the set bit of {@code index} as the 0 / 1 an int-typed boolean argument wants, reading the mask
      * field of the concrete class. Branchless, and the same bit its own setSetAt writes.
      */
-    private static void emitDefaultGlobIsSet(MethodVisitor methodVisitor, String globInternalName, int index) {
-        methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+    private static void emitDefaultGlobIsSet(MethodVisitor methodVisitor, String globInternalName, int index,
+                                             Slots slots) {
+        methodVisitor.visitVarInsn(ALOAD, slots.glob());
         switch (globInternalName.substring(globInternalName.lastIndexOf('/') + 1)) {
             case "DefaultGlob32" -> {
                 methodVisitor.visitFieldInsn(GETFIELD, globInternalName, "set", "I");
@@ -435,8 +458,9 @@ public class AsmCallerGenerator {
         }
     }
 
-    private static void pushMask(MethodVisitor methodVisitor, String globInternalName, String mask, boolean is32Bit) {
-        methodVisitor.visitVarInsn(ALOAD, GLOB_SLOT);
+    private static void pushMask(MethodVisitor methodVisitor, String globInternalName, String mask,
+                                 boolean is32Bit, Slots slots) {
+        methodVisitor.visitVarInsn(ALOAD, slots.glob());
         methodVisitor.visitFieldInsn(GETFIELD, globInternalName, mask, is32Bit ? "I" : "J");
     }
 

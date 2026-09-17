@@ -5,7 +5,6 @@ import org.globsframework.core.metamodel.GlobTypeBuilder;
 import org.globsframework.core.metamodel.GlobTypeBuilderFactory;
 import org.globsframework.core.metamodel.fields.Field;
 import org.globsframework.core.model.MutableGlob;
-import org.globsframework.core.model.caller.FromGlobFunction;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
 import org.globsframework.core.model.caller.KeySource;
 import org.globsframework.core.model.caller.LoopToGlobCallerFactory;
@@ -39,6 +38,9 @@ import java.util.concurrent.TimeUnit;
  */
 public class GeneratedCallerIdentityTest {
 
+    private static final Class<FromGlobShapes.Walk> SHAPE_T = FromGlobShapes.Walk.class;
+    private static final Class<FromGlobShapes.FieldWalk> SHAPE_D = FromGlobShapes.FieldWalk.class;
+
     /**
      * Runs in the forked JVM. With an argument, builds unrelated callers first : a name that depended on
      * how many callers came before it would shift here, and nothing else would notice.
@@ -53,13 +55,13 @@ public class GeneratedCallerIdentityTest {
             System.out.println(type.getGlobFactory().getGetValueAccessor(field).getClass().getName());
             System.out.println(type.getGlobFactory().getSetValueAccessor(field).getClass().getName());
             System.out.println(((CallerGlobFactory) type.getGlobFactory())
-                    .create("binser.write", recorder()).getClass().getName());
+                    .create("binser.write", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS).getClass().getName());
             return;
         }
         if (args.length > 0) {
             for (int i = 0; i < 5; i++) {
                 writeCaller(AsmCallerWriteGenerator.INSTANCE, "decoy" + i, functions(3, 4), null, -1);
-                AsmCallerGenerator.forDefaultGlob(declare("Decoy" + i, 6)).create("decoy" + i, recorder());
+                AsmCallerGenerator.forDefaultGlob(declare("Decoy" + i, 6)).create("decoy" + i, recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS);
             }
         }
         System.out.println(writeCaller(AsmCallerWriteGenerator.INSTANCE, "binser.read", functions(1, 2, 5),
@@ -69,7 +71,7 @@ public class GeneratedCallerIdentityTest {
                         ToGlobShapes.Caller.class, ToGlobShapes.Function.class, ToGlobShapes.ARGS)
                 .getClass().getName());
         System.out.println(AsmCallerGenerator.forDefaultGlob(declare("Identity", 20))
-                .create("binser.write", recorder()).getClass().getName());
+                .create("binser.write", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS).getClass().getName());
     }
 
     @Test
@@ -111,7 +113,7 @@ public class GeneratedCallerIdentityTest {
                         null, -1).getClass().getName().contains("myFormat_read"),
                 "the purpose is what makes the name readable");
         Assertions.assertTrue(AsmCallerGenerator.forDefaultGlob(declare("Named", 4))
-                        .create("myFormat.write", recorder()).getClass().getName()
+                        .create("myFormat.write", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS).getClass().getName()
                         .contains("myFormat_write_Named"));
     }
 
@@ -124,7 +126,7 @@ public class GeneratedCallerIdentityTest {
     public void aLongPurposeDoesNotEatTheTypeNameNextToIt() {
         GlobType type = declare("org.globsframework.serialisation.model.DummyObject", 4);
         String name = name(AsmCallerGenerator.forDefaultGlob(type)
-                .create("binser.write.the.whole.pipeline", recorder()));
+                .create("binser.write.the.whole.pipeline", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS));
 
         Assertions.assertTrue(name.contains("DummyObject"), name);
         Assertions.assertTrue(name.contains("binser_write"), name);
@@ -156,18 +158,19 @@ public class GeneratedCallerIdentityTest {
 
         GlobType four = declare("Shaped", 4);
         Assertions.assertNotEquals(
-                name(AsmCallerGenerator.forDefaultGlob(four).create("shape", recorder())),
-                name(AsmCallerGenerator.forDefaultGlob(declare("Shaped", 5)).create("shape", recorder())),
+                name(AsmCallerGenerator.forDefaultGlob(four).create("shape", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS)),
+                name(AsmCallerGenerator.forDefaultGlob(declare("Shaped", 5)).create("shape", recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS)),
                 "same purpose, same type name, one field more");
 
         // an order is part of the shape : the same fields walked the other way is another class, and the
         // suffix that keeps duplicates apart must not be what tells these two apart
         Field[] fields = four.getFields();
-        String forward = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(), fields));
+        String forward = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(), fields, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS));
         String backward = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(),
-                new Field[]{fields[3], fields[2], fields[1], fields[0]}));
+                new Field[]{fields[3], fields[2], fields[1], fields[0]}, SHAPE_T, SHAPE_D,
+                FromGlobShapes.ARGS));
         String subset = name(AsmCallerGenerator.forDefaultGlob(four).create("order", recorder(),
-                new Field[]{fields[0]}));
+                new Field[]{fields[0]}, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS));
         Assertions.assertNotEquals(forward, backward, "same fields, reversed");
         Assertions.assertNotEquals(forward, subset, "fewer fields");
         Assertions.assertFalse(backward.startsWith(forward), forward + " vs " + backward);
@@ -198,9 +201,9 @@ public class GeneratedCallerIdentityTest {
         }
         GlobType type = declare("Unnamed", 4);
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> AsmCallerGenerator.forDefaultGlob(type).create(null, recorder()));
+                () -> AsmCallerGenerator.forDefaultGlob(type).create(null, recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS));
         Assertions.assertThrows(IllegalArgumentException.class,
-                () -> FromGlobCallerFactory.callerFor(null, type, recorder()));
+                () -> FromGlobCallerFactory.callerFor(null, type, recorder(), null, SHAPE_T, SHAPE_D, FromGlobShapes.ARGS));
     }
 
     private static String name(Object caller) {
@@ -263,12 +266,7 @@ public class GeneratedCallerIdentityTest {
                 ToGlobShapes.Function.class, ToGlobShapes.ARGS);
     }
 
-    private static FromGlobCallerFactory.Functions<List<String>, Void> recorder() {
-        return new FromGlobCallerFactory.Functions<>() {
-            public <T> FromGlobFunction<T, List<String>, Void> forField(Field field) {
-                return (isSet, isNull, value, ctx1, ctx2) -> {
-                };
-            }
-        };
+    private static FromGlobCallerFactory.Functions<FromGlobShapes.FieldWalk> recorder() {
+        return FromGlobShapes.recorder();
     }
 }

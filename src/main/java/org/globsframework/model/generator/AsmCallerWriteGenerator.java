@@ -1,6 +1,7 @@
 package org.globsframework.model.generator;
 
 import org.globsframework.core.model.caller.CallerName;
+import org.globsframework.core.model.caller.CallerShape;
 import org.globsframework.core.model.caller.ToGlobCallerFactory;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
@@ -35,8 +36,7 @@ import static org.objectweb.asm.Opcodes.*;
  * {@code Object} contexts cost a box per primitive, a bridge method in front of every function of another
  * shape and one call level more — four times what generating the dispatch earns back, measured in
  * globs-off-heap. The method to emit and the method to call come from core's
- * {@link ToGlobCallerFactory#methodMatching}, so the loop and this can never disagree on what a caller's
- * shape is.
+ * {@link CallerShape#methodMatching}, so the loop and this can never disagree on what a caller's shape is.
  * <p>
  * Note what an emitted class therefore names : {@code tClass} and {@code dClass}, which are the caller's own
  * types and none of core's. {@link GeneratedClassLoader} delegates to this module's loader, so those two have
@@ -148,16 +148,16 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     public <T, D> T create(String name, SortedMap<Integer, D> functions, D fallback, int endLoop,
                            Class<T> tClass, Class<D> dClass, Class<?>... argument) {
         CallerName.check(name);
-        ToGlobCallerFactory.checkInterface(tClass);
+        CallerShape.checkInterface(tClass);
         // the argument the loop asks what comes next -- core's rule, so the loop and this drive the same one
         int keySourceAt = ToGlobCallerFactory.keySourceIndex(argument);
-        Shape shape = Shape.of(tClass, dClass, argument);
+        EmittedShape shape = shapeOf(tClass, dClass, argument);
         // sorted here rather than trusted : a lookupswitch wants its keys ascending, and the map may have
         // been built with a comparator of its own
         int[] keys = functions.keySet().stream().mapToInt(Integer::intValue).sorted().toArray();
         Object[] all = new Object[keys.length + (fallback != null ? 1 : 0)];
         for (int i = 0; i < keys.length; i++) {
-            all[i] = ToGlobCallerFactory.checked(functions.get(keys[i]), "key " + keys[i]);
+            all[i] = CallerShape.checked(functions.get(keys[i]), "key " + keys[i]);
         }
         if (fallback != null) {
             all[keys.length] = fallback;
@@ -178,11 +178,11 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     public <T, D> T create(String name, D[] functions, Class<T> tClass, Class<D> dClass,
                            Class<?>... argument) {
         CallerName.check(name);
-        ToGlobCallerFactory.checkInterface(tClass);
-        Shape shape = Shape.of(tClass, dClass, argument);
+        CallerShape.checkInterface(tClass);
+        EmittedShape shape = shapeOf(tClass, dClass, argument);
         Object[] all = new Object[functions.length];
         for (int i = 0; i < functions.length; i++) {
-            all[i] = ToGlobCallerFactory.checked(functions[i], "index " + i);
+            all[i] = CallerShape.checked(functions[i], "index " + i);
         }
         // the chunk that will really be emitted, not the one asked for : below it nothing is split, and the
         // bytes -- hence the name -- are those of a caller built without a chunk at all
@@ -194,60 +194,11 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
                 () -> generateCallerAll(callerName, shape, all.length, emitted));
     }
 
-    /**
-     * Everything the two shapes share about the pair of interfaces they are emitted over : the two methods,
-     * the descriptor both of them have (the parameter types are the same by construction, and both are void)
-     * and where each argument sits once it is on a stack frame.
-     */
-    private record Shape(Class<?> tClass, Class<?> dClass, Method callerMethod, Method functionMethod,
-                         String descriptor, Type[] arguments) {
-
-        static Shape of(Class<?> tClass, Class<?> dClass, Class<?>... argument) {
-            // the same rule as the loop's, from core : the shape of a caller is not something to re-decide here
-            Method callerMethod = ToGlobCallerFactory.methodMatching(tClass, argument);
-            Method functionMethod = ToGlobCallerFactory.methodMatching(dClass, argument);
-            String descriptor = Type.getMethodDescriptor(callerMethod);
-            return new Shape(tClass, dClass, callerMethod, functionMethod, descriptor,
-                    Type.getArgumentTypes(descriptor));
-        }
-
-        String functionDesc() {
-            return Type.getDescriptor(dClass);
-        }
-
-        String function() {
-            return Type.getInternalName(dClass);
-        }
-
-        String itf() {
-            return Type.getInternalName(tClass);
-        }
-
-        /** Where argument {@code index} starts, {@code this} being slot 0 — two slots for a long or a double. */
-        int slotOf(int index, int first) {
-            int slot = first;
-            for (int i = 0; i < index; i++) {
-                slot += arguments[i].getSize();
-            }
-            return slot;
-        }
-
-        /** The first free slot after the arguments, which is where the dispatching loop keeps its key. */
-        int slotAfterArguments() {
-            return slotOf(arguments.length, 1);
-        }
-
-        /** Everything about the pair that changes an emitted byte, plus what the shape is built for. */
-        String[] identity(String... rest) {
-            String[] identity = new String[rest.length + 5];
-            identity[0] = tClass.getName();
-            identity[1] = dClass.getName();
-            identity[2] = callerMethod.getName();
-            identity[3] = functionMethod.getName();
-            identity[4] = descriptor;
-            System.arraycopy(rest, 0, identity, 5, rest.length);
-            return identity;
-        }
+    /** Both methods take the same list here : a to-Glob caller passes its arguments straight through. */
+    private static EmittedShape shapeOf(Class<?> tClass, Class<?> dClass, Class<?>... argument) {
+        // the same rule as the loop's, from core : the shape of a caller is not something to re-decide here
+        return EmittedShape.of(tClass, dClass, CallerShape.methodMatching(tClass, argument),
+                CallerShape.methodMatching(dClass, argument));
     }
 
     /**
@@ -288,7 +239,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
      * lookupswitch otherwise — the same trade javac makes. The key source is one of the arguments, so
      * {@code nextKey} is asked of the slot it sits in and nothing is passed twice.
      */
-    static byte[] generateCaller(String callerName, Shape shape, int[] keys, boolean hasFallback,
+    static byte[] generateCaller(String callerName, EmittedShape shape, int[] keys, boolean hasFallback,
                                  int endLoop, int keySourceAt) {
         ClassWriter classWriter = newClassWriter(callerName, shape.itf());
         declareFunctions(classWriter, shape, keys.length, hasFallback);
@@ -296,8 +247,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         generateClinit(classWriter, callerName, shape, keys.length, hasFallback);
 
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL,
-                shape.callerMethod().getName(), shape.descriptor(), null,
-                exceptionsOf(shape.callerMethod()));
+                shape.callerMethod().getName(), shape.callerDescriptor(), null, shape.exceptions());
         methodVisitor.visitCode();
 
         int nextSlot = shape.slotAfterArguments();
@@ -364,15 +314,14 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
      * are {@code private static} because everything they touch is : the functions are static fields, so a
      * part takes the arguments and nothing else.
      */
-    static byte[] generateCallerAll(String callerName, Shape shape, int count, int chunk) {
+    static byte[] generateCallerAll(String callerName, EmittedShape shape, int count, int chunk) {
         ClassWriter classWriter = newClassWriter(callerName, shape.itf());
         declareFunctions(classWriter, shape, count, false);
         generateInit(classWriter);
         generateClinit(classWriter, callerName, shape, count, false);
 
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PUBLIC | ACC_FINAL,
-                shape.callerMethod().getName(), shape.descriptor(), null,
-                exceptionsOf(shape.callerMethod()));
+                shape.callerMethod().getName(), shape.callerDescriptor(), null, shape.exceptions());
         methodVisitor.visitCode();
         if (chunk == 0) {
             for (int i = 0; i < count; i++) {
@@ -380,9 +329,9 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
             }
         } else {
             for (int part = 0; part * chunk < count; part++) {
-                loadArguments(methodVisitor, shape, 1);
-                methodVisitor.visitMethodInsn(INVOKESTATIC, callerName, partName(part), shape.descriptor(),
-                        false);
+                shape.loadArguments(methodVisitor, 0, 1);
+                methodVisitor.visitMethodInsn(INVOKESTATIC, callerName, partName(part),
+                        shape.callerDescriptor(), false);
             }
         }
         methodVisitor.visitInsn(RETURN);
@@ -401,10 +350,10 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     }
 
     /** One part of a chunked unrolled caller : the entries of {@code [from, to)}, in order. */
-    private static void generatePart(ClassWriter classWriter, String callerName, Shape shape, String part,
+    private static void generatePart(ClassWriter classWriter, String callerName, EmittedShape shape, String part,
                                      int from, int to) {
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_PRIVATE | ACC_STATIC, part,
-                shape.descriptor(), null, exceptionsOf(shape.callerMethod()));
+                shape.callerDescriptor(), null, shape.exceptions());
         methodVisitor.visitCode();
         for (int i = from; i < to; i++) {
             emitCall(methodVisitor, callerName, shape, functionName(i), 0);
@@ -412,22 +361,6 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         methodVisitor.visitInsn(RETURN);
         methodVisitor.visitMaxs(0, 0);
         methodVisitor.visitEnd();
-    }
-
-    /**
-     * What the caller's own method declares. The JVM does not check it, but a caller's method may declare a
-     * checked exception its functions throw — the emitted class is the interface, so it says the same thing.
-     */
-    private static String[] exceptionsOf(Method method) {
-        Class<?>[] exceptions = method.getExceptionTypes();
-        if (exceptions.length == 0) {
-            return null;
-        }
-        String[] names = new String[exceptions.length];
-        for (int i = 0; i < exceptions.length; i++) {
-            names[i] = Type.getInternalName(exceptions[i]);
-        }
-        return names;
     }
 
     private static ClassWriter newClassWriter(String callerName, String itf) {
@@ -443,7 +376,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
         return classWriter;
     }
 
-    private static void declareFunctions(ClassWriter classWriter, Shape shape, int count,
+    private static void declareFunctions(ClassWriter classWriter, EmittedShape shape, int count,
                                          boolean hasFallback) {
         for (int i = 0; i < count; i++) {
             classWriter.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, functionName(i), shape.functionDesc(),
@@ -466,7 +399,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     }
 
     /** Fills the statics from the array registered under the class name, the fallback being its last element. */
-    private static void generateClinit(ClassWriter classWriter, String callerName, Shape shape, int count,
+    private static void generateClinit(ClassWriter classWriter, String callerName, EmittedShape shape, int count,
                                        boolean hasFallback) {
         MethodVisitor methodVisitor = classWriter.visitMethod(ACC_STATIC, "<clinit>", "()V", null, null);
         methodVisitor.visitCode();
@@ -488,7 +421,7 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     }
 
     /** The functions travel as Object[], being of the caller's own type : one CHECKCAST per static. */
-    private static void storeFunction(MethodVisitor methodVisitor, String callerName, Shape shape, int at,
+    private static void storeFunction(MethodVisitor methodVisitor, String callerName, EmittedShape shape, int at,
                                       String field) {
         methodVisitor.visitVarInsn(ALOAD, 0);
         pushInt(methodVisitor, at);
@@ -498,22 +431,11 @@ public class AsmCallerWriteGenerator implements ToGlobCallerFactory {
     }
 
     /** {@code fn.d(args)} — the function's own method, the arguments passed straight through. */
-    private static void emitCall(MethodVisitor methodVisitor, String callerName, Shape shape, String function,
+    private static void emitCall(MethodVisitor methodVisitor, String callerName, EmittedShape shape, String function,
                                  int firstSlot) {
         methodVisitor.visitFieldInsn(GETSTATIC, callerName, function, shape.functionDesc());
-        loadArguments(methodVisitor, shape, firstSlot);
-        methodVisitor.visitMethodInsn(shape.dClass().isInterface() ? INVOKEINTERFACE : INVOKEVIRTUAL,
-                shape.function(), shape.functionMethod().getName(), shape.descriptor(),
-                shape.dClass().isInterface());
-    }
-
-    /** Each argument loaded with the opcode of its own type and from its own slot — two for a long or a double. */
-    private static void loadArguments(MethodVisitor methodVisitor, Shape shape, int firstSlot) {
-        int slot = firstSlot;
-        for (Type argument : shape.arguments()) {
-            methodVisitor.visitVarInsn(argument.getOpcode(ILOAD), slot);
-            slot += argument.getSize();
-        }
+        shape.loadArguments(methodVisitor, 0, firstSlot);
+        shape.invokeFunction(methodVisitor);
     }
 
     /**

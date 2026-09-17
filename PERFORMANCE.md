@@ -56,7 +56,7 @@ peut faire sauter le budget de nœuds de C2 (`COMPILE SKIPPED: out of nodes`).
 | parcours | 4 | 20 | 40 |
 | --- | --- | --- | --- |
 | boucle à la main sur accesseurs + fonctions | 23.0 | 4.57 | 2.30 |
-| `LoopFromGlobCaller` (le fallback) | 18.9 | 3.97 | 2.00 |
+| le caller en boucle (le fallback) | 18.9 | 3.97 | 2.00 |
 | **caller généré sur un `DefaultGlob`** | **76.7** | **14.3** | **6.09** |
 | caller généré sur un Glob généré (object) | 91.1 | 15.8 | 6.77 |
 
@@ -187,7 +187,7 @@ deux benchmarks de lecture.
 
 Pas de caller aujourd'hui, d'où le tableau du §1 où la génération est une petite perte. Le SPI actuel
 l'empêche : `FieldWrite.writeAt` retourne un index de buffer et `DirectFieldReader.read` prend une
-plage d'octets, là où `FromGlobFunction` / `ToGlobFunction` retournent `void` et ne portent que
+plage d'octets, là où les fonctions des deux SPI retournent `void` et ne portent que
 des objets. Il faudrait un troisième émetteur dans globs-generate sur une interface de fonction
 retournant un `int` (~40 lignes d'ASM de plus que `AsmCallerWriteGenerator`). Gain déjà acquis en
 revanche : donner à chaque `FieldReader` le `GlobSetAccessor` du champ au lieu de `data.set(field,

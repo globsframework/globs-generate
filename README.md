@@ -36,23 +36,26 @@ The module only has to be on the classpath; what it does is decided by the prope
 
 ## Generated callers — the part that pays
 
-The interfaces (`FromGlobCaller`, `FromGlobFunction`, `ToGlobCallerFactory`, `KeySource`, ...) live in
-**core**, in `org.globsframework.core.model.caller`, so a codec is written against them without depending on
-this module. Core ships looped implementations; this module generates them.
+The SPI (`FromGlobCallerFactory`, `ToGlobCallerFactory`, `CallerShape`, `KeySource`, ...) lives in **core**,
+in `org.globsframework.core.model.caller`, so a codec is written against it without depending on this
+module. Core ships looped implementations; this module generates them.
 
-On the to-Glob side there is no pair of interfaces to implement at all : a caller is generated over **the
-two the codec owns**, matched to each other by their parameter types, so the arguments stay what the parser
-passes around — primitives included — and the emitted class *is* the codec's own interface.
+There is no pair of interfaces to implement, on either side : a caller is generated over **the two the codec
+owns**, matched to each other by their parameter types, so what the pass carries stays what the codec passes
+around — primitives included — and the emitted class *is* the codec's own interface. Core fixes only the head
+of each method, and only on the from-Glob side : the Glob for the caller, `isSet, isNull, value` for the
+functions, that value being the one argument whose type changes from one field to the next.
 
-A codec asks for a caller once, at setup, and gets a class with one `public static final FromGlobFunction`
-per field and a `call` unrolled over them. A `static final` read is a JIT constant, so every
-`fn_i.call(...)` sees a single receiver and inlines, where the one call site of a hand-written loop sees
+A codec asks for a caller once, at setup, and gets a class with one `public static final` function
+per field and its method unrolled over them. A `static final` read is a JIT constant, so every
+`fn_i.<call>(...)` sees a single receiver and inlines, where the one call site of a hand-written loop sees
 every function of every field of every type in the process and stays megamorphic.
 
 ```java
-// reading a Glob out (serialization)
-FromGlobCaller<Out, Void> caller = FromGlobCallerFactory.callerFor("mycodec.write", type, functions);
-caller.call(glob, out, null);           // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
+// reading a Glob out (serialization) -- GlobWriter and FieldWriter are the codec's own interfaces
+GlobWriter caller = FromGlobCallerFactory.callerFor("mycodec.write", type, functions, null,
+        GlobWriter.class, FieldWriter.class, Out.class);
+caller.write(glob, out);                // -> fn_i.write(isSet, isNull, value, out)
 
 // writing a Glob in (parsing) -- GlobReader and FieldReader are the codec's own interfaces,
 // both taking (MutableGlob, In); In is the KeySource, so it drives its own loop
@@ -83,7 +86,7 @@ access. **That is usually the configuration to prefer** — see the warning belo
 
 The generator buys the *first* call site. The second one — the codec, the delegate, the nested caller the
 function holds in a field — is folded by C2 only for a class it trusts with its final instance fields:
-**records**, hidden classes and therefore **lambdas**. A `FromGlobFunction` written as an ordinary named
+**records**, hidden classes and therefore **lambdas**. A caller function written as an ordinary named
 class with final fields throws away about half of what the generator bought (5.40 ns vs 0.51 ns per 4 calls
 in a microbenchmark; +4 % and +6.7 % on the real codecs when they were converted).
 

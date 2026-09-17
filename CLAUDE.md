@@ -151,46 +151,67 @@ Constraints that fall out of generating accessors, all of them load-time failure
 ## Generated callers
 
 The second thing a generated type offers. **The interfaces are not here**: `FromGlobCallerFactory`,
-`FromGlobCaller`, `FromGlobFunction`, `CallerGlobFactory` and `LoopFromGlobCaller` live in
-core, in `org.globsframework.core.model.caller`, precisely so that `globs-bin-serialisation` and
-`globs-grpc` can be written against them without depending on this module. What is here is the only
+`CallerShape`, `CallerGlobFactory` and `LoopFromGlobCallerFactory` live in core, in
+`org.globsframework.core.model.caller`, precisely so that `globs-bin-serialisation`, `globs-grpc` and
+`globs-fix` can be written against them without depending on this module. What is here is the only
 implementation, `AsmCallerGenerator`, reached through `AbstractGeneratedGlobFactory` which implements
-`CallerGlobFactory` — so the way in is a cast:
+`CallerGlobFactory`.
+
+**A caller is emitted over the codec's own two interfaces.** `tClass` is what the emitted class implements
+and `dClass` is what it calls, so what the pass carries — an output stream, a context — keeps its own type
+all the way down and there is nothing to adapt. Core fixes only the head of each method, and the two are
+found by their parameter types rather than their names (`CallerShape.methodMatching`) :
 
 ```java
-FromGlobCaller<Out, Void> caller = type.getGlobFactory() instanceof CallerGlobFactory generate
-        ? generate.create("mycodec.write", field -> functionFor(field))  // one call per field
+interface GlobWriter  { void write(Glob data, Out out); }                              // the caller's
+interface FieldWriter { void write(boolean isSet, boolean isNull, Object value, Out out); }  // the functions'
+
+GlobWriter caller = type.getGlobFactory() instanceof CallerGlobFactory generate
+        ? generate.create("mycodec.write", field -> functionFor(field), null,
+                          GlobWriter.class, FieldWriter.class, Out.class)
         : null;                                          // not generated : see callerFor below
-caller.call(glob, out, null);                            // -> fn_i.call(isSet, isNull, value, ctx1, ctx2)
+caller.write(glob, out);                                 // -> fn_i.write(isSet, isNull, value, out)
 ```
 
-but the cast is not what a downstream module should write. **`FromGlobCallerFactory.callerFor(name, type, functions)`** does
-it and falls back to a `LoopFromGlobCaller` — the plain loop over the same function table, through
-`Glob.getValue` — for a type that has no generated class (module not installed, `mode none`, or more than 64
-fields). Same behaviour, same order, same isSet/isNull/value, so the caller keeps one code path and only the
-speed changes; `theLoopedCallerAndTheGeneratedOneAgree` is what holds the two to that.
+The generic `FromGlobCaller`/`FromGlobFunction` pair this replaced carried two `Object` contexts, so a
+primitive context was boxed and a function whose real signature was something else needed an adapter and a
+bridge method in front of it. **The value stays an `Object`**, and alone : it is the one argument whose type
+changes from one field to the next, so there is nothing for a codec to declare it as. A `<T>` on the function
+interface only made every codec cast anyway.
 
-`AsmCallerGenerator` emits, per `create` call, a class with one `public static final FromGlobFunction` per
-field (`fn_<index>`, filled in `<clinit>` from `getFunctions(<its own class name>)`) and a `call` unrolled
-over them. The point is **not** saving the loop: a `static final` read is a JIT constant, so each `INVOKEINTERFACE call` sees a
-single receiver and inlines, where the one call site of a hand-written loop sees every function of every
-field of every type and stays megamorphic. That is what `globs-bin-serialisation` and `globs-grpc` pay today.
+The cast above is not what a downstream module should write. **`FromGlobCallerFactory.callerFor(name, type,
+functions, order, tClass, dClass, argument…)`** does it and falls back to `LoopFromGlobCallerFactory` — the
+plain loop over the same function table, through `Glob.getValue` — for a type that has no generated class
+(module not installed, `mode none`, or more than 64 fields). Same behaviour, same order, same
+isSet/isNull/value, so the caller keeps one code path and only the speed changes;
+`theLoopedCallerAndTheGeneratedOneAgree` is what holds the two to that. Note what that fallback costs now
+that the shape is the codec's : it can only answer a `tClass` through a reflective `Proxy`, which boxes every
+primitive argument — the three codecs here ask `generatedCallerFor` and keep their own loop on null, which is
+the right reflex for anything that already has a per-field table of its own.
+
+`AsmCallerGenerator` emits, per `create` call, a class with one `public static final` function per
+field (`fn_<index>`, filled in `<clinit>` from `getFunctions(<its own class name>)`) and the caller's method
+unrolled over them. The point is **not** saving the loop: a `static final` read is a JIT constant, so each
+call sees a single receiver and inlines, where the one call site of a hand-written loop sees every function
+of every field of every type and stays megamorphic.
 
 Measured with `FromGlobCallerPerf` (JMH, all fields set, the same four function classes on every arm), against the
-`LoopFromGlobCaller` fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
+looped fallback: **×4.7 / ×4.1 / ×4.9 at 4 / 20 / 40 fields** on the object flavour
 (18.5 → 86.8, 3.29 → 13.6, 1.35 → 6.69 M ops/s) and **×4.2 / ×4.4 / ×4.0** on the primitive one
 (18.1 → 76.0, 3.25 → 14.4, 1.32 → 5.34). A hand-rolled loop over a `GlobGetAccessor` table plus a
-`FromGlobFunction` table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
-0.96 object), so there is nothing to lose in adopting `callerFor` even for the types that fall back.
+function table — what a downstream module writes today — ties with the fallback (21.9 / 3.50 /
+0.96 object). Measured while the shape was still the erased one, i.e. with a `Void` context on every arm and
+a fallback that was a real loop rather than the `Proxy` it is now: the generated column is unchanged by that,
+the fallback column is now a floor.
 
 Consequences of that design, all deliberate:
 
 - **a class per `create`, not per type**. Two callers over the same type hold different functions; sharing
   the class would put them back on the same call sites. So `create` belongs to the setup phase of a codec,
   and each caller costs one class in metaspace, in `GeneratedClassLoader` and for the life of the process.
-- the caller **reads the Glob's public value fields and masks directly**, so `call` starts with a `CHECKCAST`
-  to the generated Glob class: a Glob of that type from another factory is a `ClassCastException`. Same bet
-  the generated accessors already make.
+- the caller **reads the Glob's public value fields and masks directly**, so the emitted method starts with a
+  `CHECKCAST` to the generated Glob class: a Glob of that type from another factory is a
+  `ClassCastException`. Same bet the generated accessors already make.
 - it is therefore **defined in the same loader as that Glob class**, `GeneratedClassLoader` — it used to
   need a child loader of the Glob's, which sharing one loader removed. The `FromGlobCallerFactory` still travels to
   `AbstractGeneratedGlobFactory`'s constructor through the `PENDING` map, exactly like the `AccessorProvider`
@@ -199,19 +220,25 @@ Consequences of that design, all deliberate:
   of the class being generated**, and its `<clinit>` passes its own name back — `getFunctions(String)`. It
   used to be an `int` from a global counter, LDC'd into the bytes, which made the emitted bytes differ from
   one run to the next for no reason (see *Naming* below).
+- the same loader has to see **`tClass` and `dClass`** too, which it does through its parent, this module's
+  own loader — true on a classpath, and the first thing to revisit if these callers are ever built under an
+  isolating loader.
 - `isSet` is `(isSet >>> index) & 1` and, on the primitive flavour, `isNull` is `((isNull | ~isSet) >>> index)
   & 1` — branchless, and saying the same thing as the Glob: `isNull` is what `doGet` answers null for, so a
   field that was never set is `isSet false, isNull true, value null`. On the object flavour `isNull` is the
   value field being null, which holds because `unset` does `doSet(field, null)` first.
-- **the value is boxed**, since `FromGlobFunction<T, D, E>` is generic. The box normally dies in escape
-  analysis once the monomorphic call inlines, but it is a real allocation whenever it does not; native
-  variants of the interface would be the way out if that ever shows up in a profile.
+- **the value is boxed** on the primitive flavour, being the one argument still an `Object`. The box normally
+  dies in escape analysis once the monomorphic call inlines, but it is a real allocation whenever it does
+  not; a function interface per field kind would be the way out if that ever shows up in a profile.
+- the Glob is argument 0 of the caller's method, so the cast Glob and the two per-field scratch values live
+  in the first slots **after** everything the pass carries (`EmittedShape.slotAfterArguments`, `Slots`) — a
+  `long` or a `double` among those takes two. Getting that wrong is a `VerifyError`, not a compile error.
 - `AsmCallerGenerator` uses `COMPUTE_FRAMES | COMPUTE_MAXS` with the `getCommonSuperClass` short-circuit, for
   the same reason as `AsmAccessorGenerator`.
-- the interfaces being in core means the **emitted descriptors name `org/globsframework/core/model/caller/`**
-  — in `AsmCallerGenerator` (`FUNCTION`, `CALLER`) and in the `getCallerGenerator` / super-constructor
-  descriptors of both factory generators. Moving them again without following through there is a
-  `NoSuchMethodError` at load time, not a compile error.
+- `EmittedShape` is what both caller generators know about their pair of interfaces — the two matched
+  methods, the two descriptors, where each argument sits, what the digest has to cover. The two sides differ
+  only in what they put in front of the arguments the codec chose : nothing on the to-Glob side, the Glob and
+  the isSet / isNull / value triple here.
 
 ### The caller over a Glob that was *not* generated
 
@@ -239,8 +266,8 @@ The mask is read the way its own class writes it, so the emitted shape is **per 
 `DefaultGlob128`, and — above 128 fields, where core keeps a `BitSet` and there is no bit to GETFIELD —
 `BitSet.get(int)` on the field. A wrong shift is a wrong answer for one field, silently, which is what
 `DefaultGlobCallerShapesTest` is for: it forks a JVM with `-Dgfw.minSize=32` (the only way to reach
-`DefaultGlob32`, since that floor is a static final read once) and holds all four shapes against
-`LoopFromGlobCaller`. `isNull` is the value being null, which is precisely what core answers
+`DefaultGlob32`, since that floor is a static final read once) and holds all four shapes against the
+looped caller. `isNull` is the value being null, which is precisely what core answers
 (`Glob.isNull(field)` is `doCheckedGet(field) == null`). `forDefaultGlob` returns **null** for a type whose
 factory does not build an `AbstractDefaultGlob`, which is the signal to fall back.
 
@@ -249,7 +276,7 @@ Measured with `FromGlobCallerPerf`, all callers over the same functions, at 4 / 
 | walk | 4 | 20 | 40 |
 | --- | --- | --- | --- |
 | loop over accessors + functions | 23.0 | 4.57 | 2.30 |
-| `LoopFromGlobCaller` | 18.9 | 3.97 | 2.00 |
+| the looped caller | 18.9 | 3.97 | 2.00 |
 | **generated over DefaultGlob** | **76.7** | **14.3** | **6.09** |
 | generated over a generated Glob (object) | 91.1 | 15.8 | 6.77 |
 
@@ -277,7 +304,7 @@ the command line:
 
 `AsmCallerGeneratorService` is a two-line `FromGlobCallerService` returning `forDefaultGlob(type)`, and
 `FromGlobCallerFactory.callerFor` asks it for any type whose factory is not a `CallerGlobFactory`, falling back to
-`LoopFromGlobCaller` when it answers null. So a codec keeps calling `callerFor` and nothing else, and the
+`LoopFromGlobCallerFactory` when it answers null. So a codec keeps calling `callerFor` and nothing else, and the
 two properties are independent: with `globs.builder` set as well, a generated type is served by its own
 factory and the service only ever sees what fell back — installing it cannot downgrade anything
 (`theFactoryStillWinsOverTheServiceForAGeneratedType`).
@@ -292,10 +319,10 @@ Setting `globs.caller.fromGlob` alone is the configuration for an application th
 loss on its own code — see the `doGet` sizes above — but still wants its codecs to walk a Glob without a
 megamorphic call per field.
 
-- the fallback is a **normal public class in core**, not a second generator: `LoopFromGlobCaller` takes
-  the `GlobType` and the `Functions` and can be built for any type, generated or not. Its loop is
-  the megamorphic dispatch the generated caller exists to remove — it is the fallback, not an alternative,
-  and core's `LoopFromGlobCallerTest` is the reference the generated one is held to.
+- the fallback is a **normal public class in core**, not a second generator: `LoopFromGlobCallerFactory`
+  takes the `GlobType` and can be built for any type, generated or not. Its loop is the megamorphic dispatch
+  the generated caller exists to remove, behind a `Proxy` that boxes on top — it is the fallback, not an
+  alternative, and core's `LoopFromGlobCallerTest` is the reference the generated one is held to.
 
 Unlike the accessors, this is not on by default anywhere: nothing in this module calls `create`, and
 `GeneratedFromGlobCallerTest` is what pins the contract (both flavours, both mask widths, the three field states, the
@@ -481,7 +508,7 @@ Measured on JDK 27-ea with four collaborator classes (`-XX:+PrintInlining` in th
 | an ordinary class, `-XX:+UnlockExperimentalVMOptions -XX:+TrustFinalNonStaticFields` | `inline (hot)` | 0.53 |
 | a table of functions (first level not constant either) | nothing propagates, flag or not | 10.90 |
 
-So: **a `FromGlobFunction`, or a to-Glob function, written as a named class with final fields throws
+So: **a function of either side written as a named class with final fields throws
 away half of what the generator bought**; the same code as a `record` (or a lambda) keeps it. Both modules that adopted the caller have been converted, each measured on its own
 `GeneratedGlobPerfTest.write` OBJECT, five forks per arm, A/B/A: `globs-grpc`'s `ProtoBufFieldSerializer`
 leaves, **+4 %** (224k → 233-235k), and `globs-bin-serialisation`'s `FieldWriter`s, **+6.7 %**

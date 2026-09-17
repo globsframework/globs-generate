@@ -10,10 +10,8 @@ import org.globsframework.core.model.MutableGlob;
 import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
 import org.globsframework.core.utils.serialization.ByteBufferSerializationOutput;
 import org.globsframework.core.utils.serialization.SerializedOutput;
-import org.globsframework.core.model.caller.LoopFromGlobCaller;
-import org.globsframework.core.model.caller.FromGlobFunction;
+import org.globsframework.core.model.caller.LoopFromGlobCallerFactory;
 import org.globsframework.core.model.caller.FromGlobCallerFactory;
-import org.globsframework.core.model.caller.FromGlobCaller;
 import org.globsframework.core.model.caller.CallerGlobFactory;
 import org.globsframework.model.generator.AsmCallerGenerator;
 import org.openjdk.jmh.annotations.*;
@@ -23,15 +21,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 /*
 What the generated caller is worth against the per-field dispatch a downstream module writes today.
 
-  loop*  : the baseline -- a table of GlobGetAccessor and a table of FromGlobFunction, both indexed by
+  loop*  : the baseline -- a table of GlobGetAccessor and a table of FieldWrite, both indexed by
            Field.getIndex(), walked in a plain loop. Two call sites for the whole process, each seeing
            every accessor class and every function class : megamorphic, no inlining.
   caller*: the same functions, handed to CallerGlobFactory.create(). One call site per field, each with
            a static final receiver : monomorphic, inlined.
-  defaultCaller*: the same functions in a LoopFromGlobCaller, i.e. what a type with no generated class
-           gets from FromGlobCallerFactory.callerFor. Same shape as the baseline, through Glob.getValue.
+  defaultCaller*: the same functions through LoopFromGlobCallerFactory, i.e. what a type with no generated
+           class gets from FromGlobCallerFactory.callerFor. Since the caller's interface is the codec's own,
+           that one is a reflective Proxy on top of the loop -- a floor, not a baseline.
 
-Both arms call exactly the same four FromGlobFunction classes and produce the same bytes.
+Every arm calls exactly the same four FieldWrite classes and produces the same bytes. GlobWrite and
+FieldWrite are this benchmark's own interfaces : core fixes the Glob on one side and isSet / isNull / the
+value on the other, and what the pass carries -- the SerializedOutput -- is ours.
 
 Run :
   mvn -o test-compile dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
@@ -43,6 +44,19 @@ Run :
 @Fork(1)
 @State(Scope.Thread)
 public class FromGlobCallerPerf {
+
+    /** The caller's interface : the Glob, then what the pass carries. */
+    public interface GlobWrite {
+        void write(Glob data, SerializedOutput out);
+    }
+
+    /** The functions' : the state of the field and its value, then the same pass. */
+    public interface FieldWrite {
+        void write(boolean isSet, boolean isNull, Object value, SerializedOutput out);
+    }
+
+    private static final Class<?>[] ARGS = {SerializedOutput.class};
+
     private static final AtomicInteger UNIQUE = new AtomicInteger();
 
     // 40 crosses into the long isSet mask
@@ -57,20 +71,20 @@ public class FromGlobCallerPerf {
     private Field[] primitiveFields;
     private GlobGetAccessor[] objectAccessors;
     private GlobGetAccessor[] primitiveAccessors;
-    private FromGlobFunction[] objectFunctions;
-    private FromGlobFunction[] primitiveFunctions;
-    private FromGlobCaller<SerializedOutput, Void> objectCaller;
-    private FromGlobCaller<SerializedOutput, Void> primitiveCaller;
-    private FromGlobCaller<SerializedOutput, Void> objectDefaultCaller;
-    private FromGlobCaller<SerializedOutput, Void> primitiveDefaultCaller;
+    private FieldWrite[] objectFunctions;
+    private FieldWrite[] primitiveFunctions;
+    private GlobWrite objectCaller;
+    private GlobWrite primitiveCaller;
+    private GlobWrite objectDefaultCaller;
+    private GlobWrite primitiveDefaultCaller;
 
     // core's DefaultGlob : nothing generated for the type at all, only the traversal
     private Glob coreGlob;
     private Field[] coreFields;
     private GlobGetAccessor[] coreAccessors;
-    private FromGlobFunction[] coreFunctions;
-    private FromGlobCaller<SerializedOutput, Void> coreCaller;
-    private FromGlobCaller<SerializedOutput, Void> coreDefaultCaller;
+    private FieldWrite[] coreFunctions;
+    private GlobWrite coreCaller;
+    private GlobWrite coreDefaultCaller;
 
     @Setup
     public void setUp() {
@@ -89,16 +103,16 @@ public class FromGlobCallerPerf {
         primitiveFunctions = functionsOf(primitiveType);
         objectCaller = callerOf(objectType);
         primitiveCaller = callerOf(primitiveType);
-        objectDefaultCaller = new LoopFromGlobCaller<>(objectType, functions());
-        primitiveDefaultCaller = new LoopFromGlobCaller<>(primitiveType, functions());
+        objectDefaultCaller = caller(new LoopFromGlobCallerFactory(objectType));
+        primitiveDefaultCaller = caller(new LoopFromGlobCallerFactory(primitiveType));
 
         GlobType coreType = build("core", null);
         coreGlob = fill(coreType);
         coreFields = coreType.getFields();
         coreAccessors = accessorsOf(coreType);
         coreFunctions = functionsOf(coreType);
-        coreCaller = AsmCallerGenerator.forDefaultGlob(coreType).create("perf", functions());
-        coreDefaultCaller = new LoopFromGlobCaller<>(coreType, functions());
+        coreCaller = caller(AsmCallerGenerator.forDefaultGlob(coreType));
+        coreDefaultCaller = caller(new LoopFromGlobCallerFactory(coreType));
     }
 
     /** service == null : core's DefaultGlob, no generation of any kind for the type. */
@@ -151,29 +165,27 @@ public class FromGlobCallerPerf {
         return accessors;
     }
 
-    private FromGlobFunction[] functionsOf(GlobType type) {
-        FromGlobFunction[] functions = new FromGlobFunction[type.getFieldCount()];
+    private FieldWrite[] functionsOf(GlobType type) {
+        FieldWrite[] functions = new FieldWrite[type.getFieldCount()];
         for (Field field : type.getFields()) {
             functions[field.getIndex()] = functionFor(field);
         }
         return functions;
     }
 
-    private FromGlobCaller<SerializedOutput, Void> callerOf(GlobType type) {
-        return ((CallerGlobFactory) type.getGlobFactory()).create("perf", functions());
+    private GlobWrite callerOf(GlobType type) {
+        return caller((CallerGlobFactory) type.getGlobFactory());
     }
 
-    private FromGlobCallerFactory.Functions<SerializedOutput, Void> functions() {
-        return new FromGlobCallerFactory.Functions<>() {
-            @SuppressWarnings("unchecked")
-            public <T> FromGlobFunction<T, SerializedOutput, Void> forField(Field field) {
-                return (FromGlobFunction<T, SerializedOutput, Void>) functionFor(field);
-            }
-        };
+    private GlobWrite caller(FromGlobCallerFactory factory) {
+        return factory.create("perf", functions(), null, GlobWrite.class, FieldWrite.class, ARGS);
     }
 
-    @SuppressWarnings("rawtypes")
-    private static FromGlobFunction functionFor(Field field) {
+    private FromGlobCallerFactory.Functions<FieldWrite> functions() {
+        return FromGlobCallerPerf::functionFor;
+    }
+
+    private static FieldWrite functionFor(Field field) {
         if (field instanceof StringField) {
             return new StringFunction();
         } else if (field instanceof IntegerField) {
@@ -187,13 +199,12 @@ public class FromGlobCallerPerf {
 
     // ---- the baseline : one accessor call site and one function call site, both megamorphic ----
 
-    @SuppressWarnings("unchecked")
-    private int loop(Glob glob, Field[] fields, GlobGetAccessor[] accessors, FromGlobFunction[] functions) {
+    private int loop(Glob glob, Field[] fields, GlobGetAccessor[] accessors, FieldWrite[] functions) {
         output.reset();
         for (int i = 0; i < fields.length; i++) {
             GlobGetAccessor accessor = accessors[i];
             Object value = accessor.getValue(glob);
-            functions[i].call(accessor.isSet(glob), value == null, value, output, null);
+            functions[i].write(accessor.isSet(glob), value == null, value, output);
         }
         return output.position();
     }
@@ -213,14 +224,14 @@ public class FromGlobCallerPerf {
     @Benchmark
     public int callerObject() {
         output.reset();
-        objectCaller.call(objectGlob, output, null);
+        objectCaller.write(objectGlob, output);
         return output.position();
     }
 
     @Benchmark
     public int callerPrimitive() {
         output.reset();
-        primitiveCaller.call(primitiveGlob, output, null);
+        primitiveCaller.write(primitiveGlob, output);
         return output.position();
     }
 
@@ -229,14 +240,14 @@ public class FromGlobCallerPerf {
     @Benchmark
     public int defaultCallerObject() {
         output.reset();
-        objectDefaultCaller.call(objectGlob, output, null);
+        objectDefaultCaller.write(objectGlob, output);
         return output.position();
     }
 
     @Benchmark
     public int defaultCallerPrimitive() {
         output.reset();
-        primitiveDefaultCaller.call(primitiveGlob, output, null);
+        primitiveDefaultCaller.write(primitiveGlob, output);
         return output.position();
     }
 
@@ -250,7 +261,7 @@ public class FromGlobCallerPerf {
     @Benchmark
     public int defaultCallerCoreGlob() {
         output.reset();
-        coreDefaultCaller.call(coreGlob, output, null);
+        coreDefaultCaller.write(coreGlob, output);
         return output.position();
     }
 
@@ -258,31 +269,32 @@ public class FromGlobCallerPerf {
     @Benchmark
     public int callerCoreGlob() {
         output.reset();
-        coreCaller.call(coreGlob, output, null);
+        coreCaller.write(coreGlob, output);
         return output.position();
     }
 
-    static class StringFunction implements FromGlobFunction<String, SerializedOutput, Void> {
-        public void call(boolean isSet, boolean isNull, String value, SerializedOutput out, Void ignored) {
-            out.writeUtf8String(isNull ? null : value);
+    // the value is the one argument still an Object -- it is the one whose type changes per field
+    static class StringFunction implements FieldWrite {
+        public void write(boolean isSet, boolean isNull, Object value, SerializedOutput out) {
+            out.writeUtf8String(isNull ? null : (String) value);
         }
     }
 
-    static class IntFunction implements FromGlobFunction<Integer, SerializedOutput, Void> {
-        public void call(boolean isSet, boolean isNull, Integer value, SerializedOutput out, Void ignored) {
-            out.writeInteger(isNull ? 0 : value);
+    static class IntFunction implements FieldWrite {
+        public void write(boolean isSet, boolean isNull, Object value, SerializedOutput out) {
+            out.writeInteger(isNull ? 0 : (Integer) value);
         }
     }
 
-    static class DoubleFunction implements FromGlobFunction<Double, SerializedOutput, Void> {
-        public void call(boolean isSet, boolean isNull, Double value, SerializedOutput out, Void ignored) {
-            out.writeDouble(isNull ? 0 : value);
+    static class DoubleFunction implements FieldWrite {
+        public void write(boolean isSet, boolean isNull, Object value, SerializedOutput out) {
+            out.writeDouble(isNull ? 0 : (Double) value);
         }
     }
 
-    static class LongFunction implements FromGlobFunction<Long, SerializedOutput, Void> {
-        public void call(boolean isSet, boolean isNull, Long value, SerializedOutput out, Void ignored) {
-            out.writeLong(isNull ? 0 : value);
+    static class LongFunction implements FieldWrite {
+        public void write(boolean isSet, boolean isNull, Object value, SerializedOutput out) {
+            out.writeLong(isNull ? 0 : (Long) value);
         }
     }
 }
