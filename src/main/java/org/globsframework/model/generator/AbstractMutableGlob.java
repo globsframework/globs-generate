@@ -1,5 +1,6 @@
 package org.globsframework.model.generator;
 
+import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
 import org.globsframework.core.metamodel.links.Link;
 import org.globsframework.core.model.*;
@@ -13,67 +14,74 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.globsframework.core.metamodel.fields.impl.AbstractField.impl;
 
 public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
 
     default MutableGlob set(IntegerField field, Integer value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(IntegerField field, int value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(IntegerArrayField field, int[] value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(DoubleField field, Double value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(DoubleField field, double value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(DoubleArrayField field, double[] value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(LongField field, Long value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(LongField field, long value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(LongArrayField field, long[] value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(StringField field, String value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(StringArrayField field, String[] value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(BigDecimalField field, BigDecimal value) throws ItemNotFound {
+        // BigDecimal is not final, and a BigDecimal[] may be an array of a subclass: the signature does not
+        // guarantee the exact class checkValue asks for, so these two keep the value check
         return setObject(field, value);
     }
 
     default MutableGlob set(BigDecimalArrayField field, BigDecimal[] value) throws ItemNotFound {
+        // BigDecimal is not final, and a BigDecimal[] may be an array of a subclass: the signature does not
+        // guarantee the exact class checkValue asks for, so these two keep the value check
         return setObject(field, value);
     }
 
     default MutableGlob set(BooleanField field, Boolean value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(BytesField field, byte[] value) {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob setValue(Field field, Object value) {
@@ -81,19 +89,24 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
     }
 
     default MutableGlob set(BooleanArrayField field, boolean[] value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(DateField field, LocalDate value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(DateTimeField field, ZonedDateTime value) throws ItemNotFound {
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(GlobField<?> field, Glob value) throws ItemNotFound {
-        return setObject(field, value);
+        if (value != null && FieldCheck.CheckGlob.shouldCheck) {
+            if (value.getType() != field.getTargetType()) {
+                throw new InvalidParameter("Value should be of type " + field.getTargetType().getName() + " but is of type " + value.getType().getName());
+            }
+        }
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(GlobArrayField<?> field, Glob[] values) throws ItemNotFound {
@@ -101,7 +114,13 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
     }
 
     default MutableGlob set(GlobUnionField field, Glob value) throws ItemNotFound {
-        return setObject(field, value);
+        if (value != null && FieldCheck.CheckGlob.shouldCheck) {
+            if (!field.isValidType(value.getType())) {
+                throw new InvalidParameter("Value should be one type of " + field.getTargetTypes().stream().map(GlobType::getName).collect(Collectors.joining(", "))
+                                           + " but is of type " + value.getType().getName());
+            }
+        }
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(GlobArrayUnionField field, Glob[] values) throws ItemNotFound {
@@ -154,14 +173,35 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
         return doGet(field);
     }
 
-    default MutableGlob setObject(Field field, Object value) {
+    /** the typed setters: the Java signature already guarantees the value's class */
+    default MutableGlob setObjectNoValueCheck(Field field, Object value) {
+        checkSet(field);
+        return doSet(field, value);
+    }
+
+    /** {@code setValue}, {@code setValues}, and the setters whose signature does not guarantee the value's class */
+    private MutableGlob setObject(Field field, Object value) {
+        checkSet(field);
         if (FieldCheck.CheckGlob.shouldCheck) {
-            if (isHashComputed() && field.isKeyField()) {
-                throw new RuntimeException(field.getFullName() + " is a key value and the hashCode is already computed.");
-            }
-            FieldCheck.check(field, getType(), value);
+            impl(field).fastCheckValue(value);
+        } else {
+            assert impl(field).fastCheckValue(value);
         }
         return doSet(field, value);
+    }
+
+    private void checkSet(Field field) {
+        if (FieldCheck.CheckGlob.shouldCheck) {
+            if (isHashComputed() && impl(field).isKeyField()) {
+                throw new RuntimeException(field.getFullName() + " is a key value and the hashCode is already computed.");
+            }
+            if (impl(field).getGlobType() != getType()) {
+                FieldCheck.throwFieldError(field, getType());
+            }
+        } else {
+            assert !isHashComputed() || !impl(field).isKeyField();
+            assert getType() == impl(field).getGlobType();
+        }
     }
 
     boolean isHashComputed();
@@ -221,7 +261,7 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
                     }
                 }
                 final MutableGlob[] value = Arrays.copyOfRange(globs, 0, globs.length, MutableGlob[].class);
-                setObject(field, value);
+                setObjectNoValueCheck(field, value);
                 return value;
             }
         } else {
