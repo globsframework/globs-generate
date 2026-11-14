@@ -15,7 +15,7 @@ import java.time.ZonedDateTime;
  * The accessors used when a type asks not to have them generated (GeneratedOption / globs.generate.accessors) :
  * a typed object per field, on top of the Glob's doGet / doSet.
  * <p>
- * Slower than the generated ones -- doGet is a tableswitch on field.getIndex(), and it boxes on the primitive
+ * Slower than the generated ones -- doGet is a tableswitch on the field's index, and it boxes on the primitive
  * flavour -- but they are plain classes: one per field kind for the whole JVM, where generation emits one per
  * field per type. At a call site shared by every type, such as a serializer looping over an array of per-field
  * writers, that difference flips the balance : ~20 receivers instead of hundreds is the difference between a
@@ -36,11 +36,11 @@ public class DoGetAccessorProvider implements AccessorProvider {
     }
 
     private static Object doGet(Glob glob, Field field) {
-        return ((AbstractGlob) glob).doGet(field);
+        return ((AbstractGlob) glob).doGet(field.getIndex());
     }
 
     private static void doSet(MutableGlob glob, Field field, Object value) {
-        ((AbstractMutableGlob) glob).doSet(field, value);
+        ((AbstractMutableGlob) glob).doSet(field.getIndex(), value);
     }
 
     /** isSet / isNull are shared by every get accessor : only the typed get() differs. */

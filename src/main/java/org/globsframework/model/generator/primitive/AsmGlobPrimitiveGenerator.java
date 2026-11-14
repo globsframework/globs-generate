@@ -281,32 +281,28 @@ public class AsmGlobPrimitiveGenerator {
         generateUnrolledVisitors(classWriter, key, fields, globType.getFieldCount() <= 32, visitor);
         {
             methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doSet",
-                    "(Lorg/globsframework/core/metamodel/fields/Field;Ljava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);
+                    "(ILjava/lang/Object;)Lorg/globsframework/core/model/MutableGlob;", null, null);
             methodVisitor.visitCode();
             Label labelReturn = new Label();
             if (fields.length != 0) {
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/core/metamodel/fields/Field", "getIndex", "()I", true);
-                methodVisitor.visitVarInsn(ISTORE, 3);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitVarInsn(ILOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setSetAt", "(I)V", false);
                 methodVisitor.visitVarInsn(ALOAD, 2);
 
                 Label label0 = new Label();
                 methodVisitor.visitJumpInsn(IFNONNULL, label0);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitVarInsn(ILOAD, 3);
-                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "forceNull", "(Lorg/globsframework/core/metamodel/fields/Field;I)V", false);
+                methodVisitor.visitVarInsn(ILOAD, 1);
+                methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "forceNull", "(I)V", false);
                 methodVisitor.visitJumpInsn(GOTO, labelReturn);
 
                 methodVisitor.visitLabel(label0);
-                methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
+                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitVarInsn(ILOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setNotNull", "(I)V", false);
-                methodVisitor.visitVarInsn(ILOAD, 3);
+                methodVisitor.visitVarInsn(ILOAD, 1);
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
 
@@ -328,9 +324,9 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 1);
+            methodVisitor.visitVarInsn(ILOAD, 1);
             methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key),
-                    "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
+                    "throwError", "(I)V", false);
 
             if (fields.length != 0) {
                 methodVisitor.visitLabel(labelReturn);
@@ -338,23 +334,20 @@ public class AsmGlobPrimitiveGenerator {
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
             methodVisitor.visitInsn(ARETURN);
-            if (fields.length == 0) {
-                methodVisitor.visitMaxs(2, 3);
-            } else {
-                methodVisitor.visitMaxs(3, 4);
-            }
+            // locals : this, int index, Object value
+            methodVisitor.visitMaxs(fields.length == 0 ? 2 : 3, 3);
             methodVisitor.visitEnd();
         }
 
         {
-            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "forceNull", "(Lorg/globsframework/core/metamodel/fields/Field;I)V", null, null);
+            methodVisitor = classWriter.visitMethod(ACC_PRIVATE, "forceNull", "(I)V", null, null);
             methodVisitor.visitCode();
             Label returnLabel = new Label();
             if (fields.length != 0) {
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitVarInsn(ILOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "setNull", "(I)V", false);
-                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitVarInsn(ILOAD, 1);
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
 
@@ -373,8 +366,8 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
+            methodVisitor.visitVarInsn(ILOAD, 1);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(I)V", false);
 
 
             if (fields.length != 0) {
@@ -382,7 +375,7 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
             methodVisitor.visitInsn(RETURN);
-            methodVisitor.visitMaxs(fields.length == 0 ? 2 : 3, 3);
+            methodVisitor.visitMaxs(fields.length == 0 ? 2 : 3, 2); // locals : this, int index
             methodVisitor.visitEnd();
         }
         {
@@ -394,31 +387,27 @@ public class AsmGlobPrimitiveGenerator {
             methodVisitor.visitEnd();
         }
         {
-            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doGet", "(Lorg/globsframework/core/metamodel/fields/Field;)Ljava/lang/Object;", null, null);
+            methodVisitor = classWriter.visitMethod(ACC_PUBLIC, "doGet", "(I)Ljava/lang/Object;", null, null);
             methodVisitor.visitCode();
             Label returnLabel = new Label();
             if (fields.length != 0) {
-                methodVisitor.visitVarInsn(ALOAD, 1);
-                methodVisitor.visitMethodInsn(INVOKEINTERFACE, "org/globsframework/core/metamodel/fields/Field", "getIndex", "()I", true);
-
-                methodVisitor.visitVarInsn(ISTORE, 2);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitVarInsn(ILOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "isNull", "(I)Z", false);
                 Label label0 = new Label();
                 methodVisitor.visitJumpInsn(IFNE, label0);
                 methodVisitor.visitVarInsn(ALOAD, 0);
-                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitVarInsn(ILOAD, 1);
                 methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "isSetAt", "(I)Z", false);
                 Label label1 = new Label();
                 methodVisitor.visitJumpInsn(IFNE, label1);
                 methodVisitor.visitLabel(label0);
-                methodVisitor.visitFrame(Opcodes.F_APPEND, 1, new Object[]{Opcodes.INTEGER}, 0, null);
+                methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
                 methodVisitor.visitInsn(ACONST_NULL);
                 methodVisitor.visitInsn(ARETURN);
                 methodVisitor.visitLabel(label1);
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
-                methodVisitor.visitVarInsn(ILOAD, 2);
+                methodVisitor.visitVarInsn(ILOAD, 1);
 
 
                 Label[] labels = IntStream.range(0, fields.length).mapToObj(i -> new Label()).toArray(Label[]::new);
@@ -439,15 +428,15 @@ public class AsmGlobPrimitiveGenerator {
                 methodVisitor.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
             }
             methodVisitor.visitVarInsn(ALOAD, 0);
-            methodVisitor.visitVarInsn(ALOAD, 1);
-            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(Lorg/globsframework/core/metamodel/fields/Field;)V", false);
+            methodVisitor.visitVarInsn(ILOAD, 1);
+            methodVisitor.visitMethodInsn(INVOKEVIRTUAL, GenerateSetNullVisitor.getGlobName(key), "throwError", "(I)V", false);
             methodVisitor.visitInsn(ACONST_NULL);
             if (fields.length != 0) {
                 methodVisitor.visitLabel(returnLabel);
                 methodVisitor.visitFrame(Opcodes.F_SAME1, 0, null, 1, new Object[]{"java/lang/Object"});
             }
             methodVisitor.visitInsn(ARETURN);
-            methodVisitor.visitMaxs(2, fields.length == 0 ? 2 : 3);
+            methodVisitor.visitMaxs(2, 2); // locals : this, int index
             methodVisitor.visitEnd();
         }
 

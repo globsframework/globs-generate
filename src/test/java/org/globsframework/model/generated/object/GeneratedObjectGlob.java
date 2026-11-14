@@ -24,8 +24,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     private Glob[] gla;
     private Boolean b;
 
-    final public MutableGlob doSet(Field field, Object value) {
-        final int index = field.getIndex();
+    final public MutableGlob doSet(int index, Object value) {
         setSetAt(index);
         switch (index) {
             case 1:
@@ -56,7 +55,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
             case 11:
                 b = (boolean) value;
             default:
-                throwError(field);
+                throwError(index);
         }
         return this;
     }
@@ -107,8 +106,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
     }
 
 
-    final public Object doGet(Field field) {
-        final int index = field.getIndex();
+    final public Object doGet(int index) {
         if (!isSetAt(index)) {
             return null;
         }
@@ -125,7 +123,7 @@ public class GeneratedObjectGlob extends AbstractGeneratedGlob32 {
             case 10 -> la1;
             case 11 -> b;
             default -> {
-                throwError(field);
+                throwError(index);
                 yield null;
             }
         };

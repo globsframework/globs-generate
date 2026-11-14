@@ -40,9 +40,12 @@ abstract public class AbstractGeneratedGlob implements AbstractMutableGlob {
         throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + globType.describe());
     }
 
-    /** The default branch of the generated tableswitch : called by INVOKEVIRTUAL on the generated Glob. */
-    final public void throwError(Field field) {
-        throw new RuntimeException(field.getFullName() + "(at index " + field.getIndex() + ")" + " invalid in " + getType().describe());
+    /**
+     * The default branch of the generated doGet / doSet tableswitch : called by INVOKEVIRTUAL on the generated
+     * Glob. Only the index is known there, doGet / doSet no longer receive the Field.
+     */
+    final public void throwError(int index) {
+        throw new RuntimeException("index " + index + " invalid in " + getType().describe());
     }
 
     final public String toString() {

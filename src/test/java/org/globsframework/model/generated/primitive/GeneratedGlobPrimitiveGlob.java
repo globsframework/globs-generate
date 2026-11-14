@@ -173,11 +173,10 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
     }
 
 
-    public MutableGlob doSet(Field field, Object value) {
-        final int index = field.getIndex();
+    public MutableGlob doSet(int index, Object value) {
         setSetAt(index);
         if (value == null) {
-            forceNull(field, index);
+            forceNull(index);
         } else {
             setNotNull(index);
             switch (index) {
@@ -209,13 +208,13 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
                 case 11:
                     b = (boolean) value;
                 default:
-                    throwError(field);
+                    throwError(index);
             }
         }
         return this;
     }
 
-    private void forceNull(Field field, int index) {
+    private void forceNull(int index) {
         setNull(index);
         switch (index) {
             case 1:
@@ -246,7 +245,7 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
             case 11:
                 b = false;
             default:
-                throwError(field);
+                throwError(index);
         }
     }
 
@@ -254,8 +253,7 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
         return GeneratedGlobPrimitiveFactory.TYPE;
     }
 
-    public Object doGet(Field field) {
-        final int index = field.getIndex();
+    public Object doGet(int index) {
         if (isNull(index)) {// || !isSetAt(index)) {
             return null;
         }
@@ -272,7 +270,7 @@ public class GeneratedGlobPrimitiveGlob extends AbstractGeneratedGlob32 {
             case 10 -> la1;
             case 11 -> b;
             default -> {
-                throwError(field);
+                throwError(index);
                 yield null;
             }
         };

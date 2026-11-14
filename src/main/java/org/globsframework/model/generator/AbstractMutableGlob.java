@@ -2,6 +2,7 @@ package org.globsframework.model.generator;
 
 import org.globsframework.core.metamodel.GlobType;
 import org.globsframework.core.metamodel.fields.*;
+import org.globsframework.core.metamodel.fields.impl.AbstractField;
 import org.globsframework.core.metamodel.links.Link;
 import org.globsframework.core.model.*;
 import org.globsframework.core.model.utils.FieldCheck;
@@ -65,15 +66,11 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
     }
 
     default MutableGlob set(BigDecimalField field, BigDecimal value) throws ItemNotFound {
-        // BigDecimal is not final, and a BigDecimal[] may be an array of a subclass: the signature does not
-        // guarantee the exact class checkValue asks for, so these two keep the value check
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(BigDecimalArrayField field, BigDecimal[] value) throws ItemNotFound {
-        // BigDecimal is not final, and a BigDecimal[] may be an array of a subclass: the signature does not
-        // guarantee the exact class checkValue asks for, so these two keep the value check
-        return setObject(field, value);
+        return setObjectNoValueCheck(field, value);
     }
 
     default MutableGlob set(BooleanField field, Boolean value) {
@@ -150,7 +147,7 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
         FieldValuesBuilder builder = FieldValuesBuilder.init();
         for (Field field : getType().getFields()) {
             if (!field.isKeyField()) {
-                builder.setValue(field, doGet(field));
+                builder.setValue(field, doGet(field.getIndex()));
             }
         }
         return builder.get();
@@ -160,7 +157,7 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
         List<FieldValue> fieldValueList = new ArrayList<>();
         for (Field field : getType().getFields()) {
             if (isSet(field)) {
-                fieldValueList.add(new FieldValue(field, doGet(field)));
+                fieldValueList.add(new FieldValue(field, doGet(field.getIndex())));
             }
         }
         return fieldValueList.toArray(FieldValue[]::new);
@@ -170,50 +167,58 @@ public interface AbstractMutableGlob extends AbstractGlob, MutableGlob {
         if (FieldCheck.CheckGlob.shouldCheck) {
             FieldCheck.check(field, getType());
         }
-        return doGet(field);
+        return doGet(impl(field).getIndex());
     }
 
     /** the typed setters: the Java signature already guarantees the value's class */
     default MutableGlob setObjectNoValueCheck(Field field, Object value) {
-        checkSet(field);
-        return doSet(field, value);
+        AbstractField abstractField = impl(field);
+        checkSet(abstractField);
+        return doSet(abstractField.getIndex(), value);
     }
 
     /** {@code setValue}, {@code setValues}, and the setters whose signature does not guarantee the value's class */
     private MutableGlob setObject(Field field, Object value) {
-        checkSet(field);
+        AbstractField abstractField = impl(field);
+        checkSet(abstractField);
         if (FieldCheck.CheckGlob.shouldCheck) {
-            impl(field).fastCheckValue(value);
+            abstractField.fastCheckValue(value);
         } else {
-            assert impl(field).fastCheckValue(value);
+            assert abstractField.fastCheckValue(value);
         }
-        return doSet(field, value);
+        return doSet(abstractField.getIndex(), value);
     }
 
-    private void checkSet(Field field) {
+    private void checkSet(AbstractField field) {
         if (FieldCheck.CheckGlob.shouldCheck) {
-            if (isHashComputed() && impl(field).isKeyField()) {
+            if (isHashComputed() && field.isKeyField()) {
                 throw new RuntimeException(field.getFullName() + " is a key value and the hashCode is already computed.");
             }
-            if (impl(field).getGlobType() != getType()) {
+            if (field.getGlobType() != getType()) {
                 FieldCheck.throwFieldError(field, getType());
             }
         } else {
-            assert !isHashComputed() || !impl(field).isKeyField();
-            assert getType() == impl(field).getGlobType();
+            assert !isHashComputed() || !field.isKeyField();
+            assert getType() == field.getGlobType();
         }
     }
 
     boolean isHashComputed();
 
-    MutableGlob doSet(Field field, Object value);
+    /**
+     * Writes the value at {@code index} (a {@code Field.getIndex()} of this Glob's type) and marks it set,
+     * without any check : the callers above have already validated the field. On the generated Globs it is a
+     * tableswitch on {@code index}, which no longer has to be read back from the Field.
+     */
+    MutableGlob doSet(int index, Object value);
 
     void clearSetAt(int index);
 
     /** doSet(null) first : on the primitive flavour that is what writes the null bit. */
     default MutableGlob unset(Field field) {
-        doSet(field, null);
-        clearSetAt(field.getIndex());
+        int index = impl(field).getIndex();
+        doSet(index, null);
+        clearSetAt(index);
         return this;
     }
 

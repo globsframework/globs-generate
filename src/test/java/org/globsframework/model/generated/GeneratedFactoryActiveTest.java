@@ -389,7 +389,7 @@ public class GeneratedFactoryActiveTest {
                 for (Field field : type.getFields()) {
                     if (glob.isSet(field)) {
                         expected.append(field.getName()).append('=')
-                                .append(((AbstractGlob) glob).doGet(field)).append(' ');
+                                .append(((AbstractGlob) glob).doGet(field.getIndex())).append(' ');
                     }
                 }
 
@@ -491,7 +491,7 @@ public class GeneratedFactoryActiveTest {
             GlobGetAccessor accessor = glob.getType().getGlobFactory().getGetValueAccessor(field);
             Assertions.assertEquals(glob.isSet(field), accessor.isSet(glob),
                     "isSet(" + field.getName() + ") " + state);
-            Assertions.assertEquals(((AbstractGlob) glob).doGet(field) == null, accessor.isNull(glob),
+            Assertions.assertEquals(((AbstractGlob) glob).doGet(field.getIndex()) == null, accessor.isNull(glob),
                     "isNull(" + field.getName() + ") " + state);
         }
     }

@@ -121,12 +121,12 @@ Glob's `GETSTATIC` on `TYPE` resolves), but it is the kind of thing that breaks 
 
 `isSet`/`isNull` are generated too, overriding `AbstractGeneratedGetAccessor`, which answers them through
 `glob.isSet(field)` (an interface call to `getIndex()`) and, for `isNull`, through a boxing
-`doGet(field) == null`. The generated pair is one `GETFIELD` + mask test per question at a constant index:
+`doGet(field.getIndex()) == null`. The generated pair is one `GETFIELD` + mask test per question at a constant index:
 `isSet` reads the `isSet` mask; `isNull` reads the value field and tests it against null on the object
 flavour, and tests the `isNull` mask then the `isSet` one on the primitive flavour — the same two tests the
 generated `get()` makes, so they cannot disagree.
 `GeneratedFactoryActiveTest.generatedIsSetAndIsNullAgreeWithTheGlob` checks both against
-`glob.isSet(field)` / `doGet(field) == null` in all four states (fresh, set, set-to-null, unset) on both
+`glob.isSet(field)` / `doGet(field.getIndex()) == null` in all four states (fresh, set, set-to-null, unset) on both
 mask widths, and asserts the two methods are *declared* on the accessor rather than inherited.
 
 Constraints that fall out of generating accessors, all of them load-time failures rather than compile errors:
@@ -242,7 +242,7 @@ Consequences of that design, all deliberate:
 - `isSet` is `(isSet >>> index) & 1` and, on the primitive flavour, `isNull` is `((isNull | ~isSet) >>> index)
   & 1` — branchless, and saying the same thing as the Glob: `isNull` is what `doGet` answers null for, so a
   field that was never set is `isSet false, isNull true, value null`. On the object flavour `isNull` is the
-  value field being null, which holds because `unset` does `doSet(field, null)` first.
+  value field being null, which holds because `unset` does `doSet(index, null)` first.
 - **the value is boxed** on the primitive flavour, being the one argument still an `Object`. The box normally
   dies in escape analysis once the monomorphic call inlines, but it is a real allocation whenever it does
   not; a function interface per field kind would be the way out if that ever shows up in a profile.
@@ -700,7 +700,7 @@ the three looped `apply`/`accept` into `AbstractGlob`/`AbstractMutableGlob`, and
 methods plus a memoized field, so an interface cannot carry them).
 
 - `generator/object/AbstractGeneratedGlob32` / `…64` — `int` / `long` `isSet` mask only.
-- `generator/primitive/AbstractGeneratedGlob32` / `…64` — `isSet` **and** `isNull` masks; `doSet(field, null)`
+- `generator/primitive/AbstractGeneratedGlob32` / `…64` — `isSet` **and** `isNull` masks; `doSet(index, null)`
   routes to a generated private `forceNull` method that writes the type's zero value and flips the null bit.
 
 Keep the mask methods declared in these four, not in the shared base: hoisting them would turn what is a

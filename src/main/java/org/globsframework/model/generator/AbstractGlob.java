@@ -9,7 +9,11 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
 
     GlobType getType();
 
-    Object doGet(Field field);
+    /**
+     * The value at {@code index} (a {@code Field.getIndex()} of this Glob's type), null when unset, without any
+     * check. On the generated Globs it is a tableswitch on {@code index}.
+     */
+    Object doGet(int index);
 
     boolean isSetAt(int index);
 
@@ -23,7 +27,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     T apply(T functor) throws Exception {
         for (Field field : getType().getFields()) {
             if (isSetAt(field.getIndex())) {
-                functor.process(field, doGet(field));
+                functor.process(field, doGet(field.getIndex()));
             }
         }
         return functor;
@@ -32,7 +36,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     default <T extends FieldValueVisitor> T accept(T functor) throws Exception {
         for (Field field : getType().getFields()) {
             if (isSetAt(field.getIndex())) {
-                field.acceptValue(functor, doGet(field));
+                field.acceptValue(functor, doGet(field.getIndex()));
             }
         }
         return functor;
@@ -41,7 +45,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     default <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
         for (Field field : getType().getFields()) {
             if (isSetAt(field.getIndex())) {
-                field.acceptValue(functor, doGet(field), ctx);
+                field.acceptValue(functor, doGet(field.getIndex()), ctx);
             }
         }
         return functor;
@@ -56,7 +60,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
             if (isSet(field)) {
                 buffer.append(", ");
                 buffer.append("\"").append(escapeQuote(field.getName())).append("\":");
-                field.toString(buffer, doGet(field));
+                field.toString(buffer, doGet(field.getIndex()));
             }
         }
         buffer.append("}");
@@ -89,7 +93,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
 
     default <T extends FieldValueVisitor> T acceptOnKeyField(T functor) throws Exception {
         for (Field field : getType().getFields()) {
-            field.acceptValue(functor, doGet(field));
+            field.acceptValue(functor, doGet(field.getIndex()));
         }
         return functor;
     }
@@ -97,7 +101,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     default <T extends FieldValueVisitor> T safeAcceptOnKeyField(T functor) {
         try {
             for (Field field : getType().getKeyFields()) {
-                field.acceptValue(functor, doGet(field));
+                field.acceptValue(functor, doGet(field.getIndex()));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -108,7 +112,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     default <T extends FieldValues.Functor>
     T applyOnKeyField(T functor) throws Exception {
         for (Field field : getType().getFields()) {
-            functor.process(field, doGet(field));
+            functor.process(field, doGet(field.getIndex()));
         }
         return functor;
     }
@@ -117,7 +121,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     T safeApplyOnKeyField(T functor) {
         try {
             for (Field field : getType().getKeyFields()) {
-                functor.process(field, doGet(field));
+                functor.process(field, doGet(field.getIndex()));
             }
         } catch (RuntimeException e) {
             throw e;
@@ -130,7 +134,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
     default <CTX, T extends FieldValueVisitorWithContext<CTX>>
     T acceptOnKeyField(T functor, CTX ctx) throws Exception {
         for (Field field : getType().getKeyFields()) {
-            field.acceptValue(functor, doGet(field), ctx);
+            field.acceptValue(functor, doGet(field.getIndex()), ctx);
         }
         return functor;
     }
@@ -155,21 +159,21 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
             public <T extends Functor>
             T apply(T functor) throws Exception {
                 for (Field field : type.getKeyFields()) {
-                    functor.process(field, AbstractGlob.this.doGet(field));
+                    functor.process(field, AbstractGlob.this.doGet(field.getIndex()));
                 }
                 return functor;
             }
 
             public <T extends FieldValueVisitor> T accept(T functor) throws Exception {
                 for (Field field : type.getKeyFields()) {
-                    field.acceptValue(functor, AbstractGlob.this.doGet(field));
+                    field.acceptValue(functor, AbstractGlob.this.doGet(field.getIndex()));
                 }
                 return functor;
             }
 
             public <CTX, T extends FieldValueVisitorWithContext<CTX>> T accept(T functor, CTX ctx) throws Exception {
                 for (Field field : type.getKeyFields()) {
-                    field.acceptValue(functor, AbstractGlob.this.doGet(field), ctx);
+                    field.acceptValue(functor, AbstractGlob.this.doGet(field.getIndex()), ctx);
                 }
                 return functor;
             }
@@ -179,7 +183,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
                 int i = 0;
                 for (Field field : type.getKeyFields()) {
                     if (isSet(field)) {
-                        arrays[i] = new FieldValue(field, AbstractGlob.this.doGet(field));
+                        arrays[i] = new FieldValue(field, AbstractGlob.this.doGet(field.getIndex()));
                         i++;
                     }
                 }
@@ -187,7 +191,7 @@ public interface AbstractGlob extends AbstractFieldValues, Glob, Key {
             }
 
             public Object doCheckedGet(Field field) {
-                return AbstractGlob.this.doGet(field);
+                return AbstractGlob.this.doGet(field.getIndex());
             }
 
         };

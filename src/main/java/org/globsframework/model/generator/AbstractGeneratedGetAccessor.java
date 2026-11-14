@@ -18,16 +18,18 @@ import org.globsframework.core.model.globaccessor.get.GlobGetAccessor;
  */
 public abstract class AbstractGeneratedGetAccessor implements GlobGetAccessor {
     protected final Field field;
+    private final int index;
 
     protected AbstractGeneratedGetAccessor(Field field) {
         this.field = field;
+        this.index = field.getIndex();
     }
 
     public boolean isSet(Glob glob) {
-        return glob.isSet(field);
+        return ((AbstractGlob) glob).isSetAt(index);
     }
 
     public boolean isNull(Glob glob) {
-        return ((AbstractGlob) glob).doGet(field) == null;
+        return ((AbstractGlob) glob).doGet(index) == null;
     }
 }
